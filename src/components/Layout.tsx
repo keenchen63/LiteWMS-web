@@ -44,7 +44,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
               <div className="flex items-center gap-2 font-bold text-xl">
                 <Package className="text-blue-400" />
-                <span>仓</span>
+                <span>LiteWMS</span>
               </div>
               <button 
                 onClick={() => setIsSidebarOpen(false)} 
