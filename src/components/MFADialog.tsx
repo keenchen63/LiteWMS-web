@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, X, AlertCircle, Clock } from 'lucide-react';
-import { mfaApi } from '../services/api';
 
 interface MFADialogProps {
   show: boolean;

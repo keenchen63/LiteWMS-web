@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { warehousesApi, itemsApi, transactionsApi, categoriesApi } from '../services/api';
+import { warehousesApi, itemsApi, transactionsApi } from '../services/api';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { 
   Building2, Plus, Edit2, Trash2, ArrowLeftRight, Check, X, Search, MapPin, Calendar, User, FileText
@@ -747,7 +747,7 @@ const TransferView: React.FC = () => {
                     <div className="text-sm text-slate-500 text-center py-8">暂无选择物品</div>
                   ) : (
                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                      {selectedItems.map((selected, idx) => (
+                      {selectedItems.map((selected) => (
                         <div key={selected.item.id} className="bg-white p-3 rounded-lg border border-gray-200">
                           <div className="flex items-start justify-between mb-2">
                             <div className="flex-1">
@@ -851,7 +851,7 @@ const TransferView: React.FC = () => {
                   <ArrowLeftRight size={16} /> 调拨清单
                 </h4>
                 <div className="bg-slate-50 rounded-lg border border-gray-200 p-4 max-h-64 overflow-y-auto">
-                  {selectedItems.map((selected, idx) => (
+                  {selectedItems.map((selected) => (
                     <div key={selected.item.id} className="bg-white rounded-lg p-3 mb-2 last:mb-0 border border-gray-200">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">

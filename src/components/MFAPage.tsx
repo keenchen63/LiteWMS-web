@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, X, Trash2, Plus } from 'lucide-react';
+import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, Trash2, Plus } from 'lucide-react';
 import { mfaApi, MFADeviceInfo } from '../services/api';
 
 export const MFAPage: React.FC = () => {
@@ -16,7 +16,7 @@ export const MFAPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [status, setStatus] = useState<{ password_set: boolean; mfa_set: boolean; mfa_count: number } | null>(null);
+  // status 变量已移除，直接使用 devices.length 来判断 MFA 状态
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<'password' | 'mfa'>('mfa');
 
@@ -39,9 +39,7 @@ export const MFAPage: React.FC = () => {
       setIsAuthenticated(true);
       setStep('main');
       setDevices(response.devices);
-      // 同时获取状态
-      const statusData = await mfaApi.getStatus();
-      setStatus(statusData);
+      // 设备列表已加载
     } catch (err: any) {
       // Token 无效或过期，清除并显示登录页面
       mfaApi.clearToken();
@@ -53,7 +51,6 @@ export const MFAPage: React.FC = () => {
   const checkStatus = async () => {
     try {
       const statusData = await mfaApi.getStatus();
-      setStatus(statusData);
       
       // 状态检查：根据密码设置状态和认证状态决定显示哪个页面
       if (!statusData.password_set) {
@@ -154,8 +151,6 @@ export const MFAPage: React.FC = () => {
         setError('');
         // 登录成功后加载设备列表
         await loadDevices();
-        const statusData = await mfaApi.getStatus();
-        setStatus(statusData);
       } else {
         setIsAuthenticated(false);
         setError('登录失败，未获取到认证令牌');
@@ -279,9 +274,7 @@ export const MFAPage: React.FC = () => {
       setQrCodeUrl(response.qr_code_url);
       setSuccess('MFA 设备添加成功，请验证验证码');
       setDeviceName('');
-      // 刷新状态和设备列表
-      const statusData = await mfaApi.getStatus();
-      setStatus(statusData);
+      // 刷新设备列表
       await loadDevices();
     } catch (err: any) {
       if (err.response?.status === 401) {
@@ -308,9 +301,7 @@ export const MFAPage: React.FC = () => {
     try {
       await mfaApi.deleteDevice(deviceId);
       setSuccess('设备删除成功');
-      // 刷新状态和设备列表
-      const statusData = await mfaApi.getStatus();
-      setStatus(statusData);
+      // 刷新设备列表
       await loadDevices();
       // 如果删除的是当前显示的设备，清空显示
       if (qrCodeUrl) {
@@ -356,9 +347,7 @@ export const MFAPage: React.FC = () => {
       setVerificationCode('');
       setMfaSecret('');
       setQrCodeUrl('');
-      // 刷新状态和设备列表
-      const statusData = await mfaApi.getStatus();
-      setStatus(statusData);
+      // 刷新设备列表
       await loadDevices();
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || '验证码错误';
