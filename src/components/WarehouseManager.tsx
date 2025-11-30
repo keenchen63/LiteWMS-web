@@ -66,7 +66,11 @@ const WarehouseSettings: React.FC = () => {
     title: '',
     message: ''
   });
-  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; warehouse: Warehouse | null }>({ show: false, warehouse: null });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; warehouse: Warehouse | null; inputName: string }>({ 
+    show: false, 
+    warehouse: null,
+    inputName: ''
+  });
 
   const handleAdd = async () => {
     if (!newName.trim()) return;
@@ -137,14 +141,25 @@ const WarehouseSettings: React.FC = () => {
   };
 
   const handleDeleteClick = (warehouse: Warehouse) => {
-    setDeleteConfirm({ show: true, warehouse });
+    setDeleteConfirm({ show: true, warehouse, inputName: '' });
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm.warehouse) return;
     
+    // 验证输入的名称是否匹配
+    if (deleteConfirm.inputName !== deleteConfirm.warehouse.name) {
+      setDialog({
+        show: true,
+        type: 'warning',
+        title: '名称不匹配',
+        message: '请输入正确的仓库名称以确认删除'
+      });
+      return;
+    }
+    
     // 先关闭确认对话框
-    setDeleteConfirm({ show: false, warehouse: null });
+    setDeleteConfirm({ show: false, warehouse: null, inputName: '' });
     
     // 等待一小段时间确保对话框关闭动画完成
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -214,29 +229,48 @@ const WarehouseSettings: React.FC = () => {
               <div className="p-2 bg-red-100 rounded-full">
                 <Trash2 className="text-red-600" size={24} />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">确认删除</h3>
+              <h3 className="text-lg font-bold text-slate-900">确认删除仓库</h3>
             </div>
             
             <div className="mb-6">
-              <p className="text-slate-600 mb-3">确定要删除该仓库吗？此操作不可恢复。</p>
-              <div className="bg-slate-50 rounded-lg p-4">
-                <div>
-                  <span className="text-sm font-medium text-slate-500">仓库名称：</span>
-                  <span className="text-sm text-slate-800 ml-2 font-bold">{deleteConfirm.warehouse.name}</span>
+              <p className="text-slate-600 mb-4">
+                这是一个<strong className="text-red-600">不可恢复</strong>的致命操作。删除仓库将影响所有相关的库存数据。
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <div className="mb-3">
+                  <span className="text-sm font-medium text-slate-700">要删除的仓库：</span>
+                  <span className="text-sm text-slate-900 ml-2 font-bold">{deleteConfirm.warehouse.name}</span>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  请输入仓库名称 <span className="text-red-500">"{deleteConfirm.warehouse.name}"</span> 以确认删除：
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirm.inputName}
+                  onChange={(e) => setDeleteConfirm({ ...deleteConfirm, inputName: e.target.value })}
+                  placeholder="输入仓库名称"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                  autoFocus
+                />
+                {deleteConfirm.inputName && deleteConfirm.inputName !== deleteConfirm.warehouse.name && (
+                  <p className="text-xs text-red-600 mt-1">名称不匹配，请重新输入</p>
+                )}
               </div>
             </div>
             
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setDeleteConfirm({ show: false, warehouse: null })}
+                onClick={() => setDeleteConfirm({ show: false, warehouse: null, inputName: '' })}
                 className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={handleDeleteConfirm}
-                className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors flex items-center gap-2"
+                disabled={deleteConfirm.inputName !== deleteConfirm.warehouse.name}
+                className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-2"
               >
                 <Trash2 size={16} />
                 确认删除
