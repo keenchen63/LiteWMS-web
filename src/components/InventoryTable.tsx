@@ -257,7 +257,7 @@ export const InventoryTable: React.FC = () => {
                     品类 <ArrowUpDown size={14} className="text-gray-400" />
                   </div>
                 </th>
-                <th className="px-6 py-4 whitespace-nowrap min-w-[300px]">规格详情 (Specs)</th>
+                <th className="px-6 py-4 whitespace-nowrap min-w-[300px]">规格详情</th>
                 <th className="px-6 py-4 whitespace-nowrap w-32 text-center">当前库存</th>
                 <th className="px-6 py-4 whitespace-nowrap w-40 text-right">最后更新</th>
               </tr>
