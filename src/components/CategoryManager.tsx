@@ -257,7 +257,7 @@ const InboundEntryView: React.FC = () => {
     }
 
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('inbound');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -806,7 +806,7 @@ const InventoryEditView: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('adjust');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -1383,8 +1383,9 @@ const CategoryPanel: React.FC = () => {
       return;
     }
 
-    // MFA 验证
-    const mfaVerified = await requireMFA();
+    // MFA 验证 - 根据是否编辑判断操作类型
+    const operationType = isEditing ? 'category_update' : 'category_create';
+    const mfaVerified = await requireMFA(operationType);
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -1432,7 +1433,7 @@ const CategoryPanel: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('category_delete');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }

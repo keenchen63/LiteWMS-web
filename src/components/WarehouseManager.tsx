@@ -72,7 +72,7 @@ const WarehouseSettings: React.FC = () => {
     if (!newName.trim()) return;
     
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('warehouse_create');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -109,7 +109,7 @@ const WarehouseSettings: React.FC = () => {
     if (!editingId || !editName.trim()) return;
     
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('warehouse_update');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -150,7 +150,7 @@ const WarehouseSettings: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 100));
     
     // MFA 验证
-    const mfaVerified = await requireMFA();
+    const mfaVerified = await requireMFA('warehouse_delete');
     if (!mfaVerified) {
       return; // 用户取消了 MFA 验证
     }
@@ -510,7 +510,7 @@ const TransferView: React.FC = () => {
       }
 
       // MFA 验证
-      const mfaVerified = await requireMFA();
+      const mfaVerified = await requireMFA('transfer');
       if (!mfaVerified) {
         return; // 用户取消了 MFA 验证
       }

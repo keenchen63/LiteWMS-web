@@ -1,6 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, Trash2, Plus } from 'lucide-react';
+import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, Trash2, Plus, Power, Settings } from 'lucide-react';
 import { mfaApi, MFADeviceInfo } from '../services/api';
+
+// 细粒度设置开关组件
+const SettingToggle: React.FC<{
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}> = ({ label, checked, onChange, disabled }) => {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <span className="text-sm text-slate-700">{label}</span>
+      <label className="relative inline-flex items-center cursor-pointer">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={disabled}
+          className="sr-only peer"
+        />
+        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"></div>
+      </label>
+    </div>
+  );
+};
 
 export const MFAPage: React.FC = () => {
   const [step, setStep] = useState<'login' | 'set-password' | 'main'>('login');
@@ -19,6 +43,30 @@ export const MFAPage: React.FC = () => {
   // status 变量已移除，直接使用 devices.length 来判断 MFA 状态
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<'password' | 'mfa'>('mfa');
+  const [mfaEnabled, setMfaEnabled] = useState(true);
+  const [mfaSettings, setMfaSettings] = useState<{
+    inbound: boolean;
+    outbound: boolean;
+    transfer: boolean;
+    adjust: boolean;
+    category_create: boolean;
+    category_update: boolean;
+    category_delete: boolean;
+    warehouse_create: boolean;
+    warehouse_update: boolean;
+    warehouse_delete: boolean;
+  }>({
+    inbound: true,
+    outbound: false,
+    transfer: true,
+    adjust: true,
+    category_create: true,
+    category_update: true,
+    category_delete: true,
+    warehouse_create: true,
+    warehouse_update: true,
+    warehouse_delete: true,
+  });
 
   useEffect(() => {
     // 检查是否有保存的 token，如果有则尝试自动登录
@@ -39,12 +87,68 @@ export const MFAPage: React.FC = () => {
       setIsAuthenticated(true);
       setStep('main');
       setDevices(response.devices);
+      // 加载 MFA 状态
+      await loadMFAStatus();
       // 设备列表已加载
     } catch (err: any) {
       // Token 无效或过期，清除并显示登录页面
       mfaApi.clearToken();
       setIsAuthenticated(false);
       checkStatus();
+    }
+  };
+  
+  const loadMFAStatus = async () => {
+    try {
+      const status = await mfaApi.getStatus();
+      setMfaEnabled(status.mfa_enabled);
+      if (status.mfa_settings) {
+        setMfaSettings(status.mfa_settings);
+      }
+    } catch (err: any) {
+      console.error('Failed to load MFA status:', err);
+      // 默认启用
+      setMfaEnabled(true);
+    }
+  };
+  
+  const loadMFASettings = async () => {
+    try {
+      const response = await mfaApi.getSettings();
+      setMfaSettings(response.settings);
+    } catch (err: any) {
+      console.error('Failed to load MFA settings:', err);
+    }
+  };
+  
+  const handleUpdateSettings = async (key: string, value: boolean) => {
+    if (!isAuthenticated) {
+      setError('请先登录');
+      setStep('login');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const updatedSettings = { ...mfaSettings, [key]: value };
+      await mfaApi.updateSettings({ [key]: value });
+      setMfaSettings(updatedSettings);
+      setSuccess('配置已更新');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        setError('认证已过期，请重新登录');
+        setIsAuthenticated(false);
+        mfaApi.clearToken();
+        setStep('login');
+      } else {
+        setError(err.response?.data?.detail || '操作失败，请重试');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -87,9 +191,42 @@ export const MFAPage: React.FC = () => {
     try {
       const response = await mfaApi.getDevices();
       setDevices(response.devices);
+      // 同时加载 MFA 状态和配置
+      await loadMFAStatus();
+      await loadMFASettings();
     } catch (err: any) {
       console.error('Failed to load devices:', err);
       setDevices([]);
+    }
+  };
+  
+  const handleToggleMFA = async (enabled: boolean) => {
+    if (!isAuthenticated) {
+      setError('请先登录');
+      setStep('login');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await mfaApi.toggleMFA(enabled);
+      setMfaEnabled(enabled);
+      setSuccess(`MFA 已${enabled ? '启用' : '禁用'}`);
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err: any) {
+      if (err.response?.status === 401) {
+        setError('认证已过期，请重新登录');
+        setIsAuthenticated(false);
+        mfaApi.clearToken();
+        setStep('login');
+      } else {
+        setError(err.response?.data?.detail || '操作失败，请重试');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -600,6 +737,132 @@ export const MFAPage: React.FC = () => {
                 <Shield size={20} className="text-blue-600" />
                 MFA 设备管理
               </h2>
+              
+              {/* MFA 开关 */}
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Power size={18} className="text-blue-600" />
+                      <span className="font-medium text-slate-900">MFA 验证</span>
+                    </div>
+                    <p className="text-sm text-slate-600">
+                      {mfaEnabled ? 'MFA 验证已启用，操作时需要输入验证码' : 'MFA 验证已禁用，操作时不需要验证码'}
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={mfaEnabled}
+                      onChange={(e) => handleToggleMFA(e.target.checked)}
+                      disabled={loading || devices.length === 0}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"></div>
+                  </label>
+                </div>
+                {devices.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    请先添加至少一个 MFA 设备才能启用验证
+                  </p>
+                )}
+              </div>
+              
+              {/* 细粒度 MFA 控制 */}
+              {mfaEnabled && devices.length > 0 && (
+                <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <h3 className="text-md font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                    <Settings size={18} className="text-blue-600" />
+                    细粒度控制
+                  </h3>
+                  <p className="text-xs text-slate-600 mb-4">
+                    为不同操作单独设置是否需要 MFA 验证
+                  </p>
+                  
+                  <div className="space-y-4">
+                    {/* 库存操作组 */}
+                    <div>
+                      <h4 className="text-sm font-medium text-slate-700 mb-2">库存操作</h4>
+                      <div className="space-y-2 pl-4">
+                        <SettingToggle
+                          label="入库提交"
+                          checked={mfaSettings.inbound}
+                          onChange={(checked) => handleUpdateSettings('inbound', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="出库提交"
+                          checked={mfaSettings.outbound}
+                          onChange={(checked) => handleUpdateSettings('outbound', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="库存调拨"
+                          checked={mfaSettings.transfer}
+                          onChange={(checked) => handleUpdateSettings('transfer', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="库存调整"
+                          checked={mfaSettings.adjust}
+                          onChange={(checked) => handleUpdateSettings('adjust', checked)}
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* 品类管理组 */}
+                    <div>
+                      <h4 className="text-sm font-medium text-slate-700 mb-2">品类管理</h4>
+                      <div className="space-y-2 pl-4">
+                        <SettingToggle
+                          label="创建品类"
+                          checked={mfaSettings.category_create}
+                          onChange={(checked) => handleUpdateSettings('category_create', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="更新品类"
+                          checked={mfaSettings.category_update}
+                          onChange={(checked) => handleUpdateSettings('category_update', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="删除品类"
+                          checked={mfaSettings.category_delete}
+                          onChange={(checked) => handleUpdateSettings('category_delete', checked)}
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* 仓库设置组 */}
+                    <div>
+                      <h4 className="text-sm font-medium text-slate-700 mb-2">仓库设置</h4>
+                      <div className="space-y-2 pl-4">
+                        <SettingToggle
+                          label="创建仓库"
+                          checked={mfaSettings.warehouse_create}
+                          onChange={(checked) => handleUpdateSettings('warehouse_create', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="更新仓库"
+                          checked={mfaSettings.warehouse_update}
+                          onChange={(checked) => handleUpdateSettings('warehouse_update', checked)}
+                          disabled={loading}
+                        />
+                        <SettingToggle
+                          label="删除仓库"
+                          checked={mfaSettings.warehouse_delete}
+                          onChange={(checked) => handleUpdateSettings('warehouse_delete', checked)}
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {/* Device List - Always show if there are devices */}
               {devices.length > 0 && (

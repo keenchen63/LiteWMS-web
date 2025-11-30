@@ -5,8 +5,8 @@ export const useMFA = () => {
   const [showMFADialog, setShowMFADialog] = useState(false);
   const [mfaResolve, setMfaResolve] = useState<((value: boolean) => void) | null>(null);
 
-  const requireMFA = useCallback(async (): Promise<boolean> => {
-    // Check if MFA is set up
+  const requireMFA = useCallback(async (operationType?: string): Promise<boolean> => {
+    // Check if MFA is set up and enabled
     try {
       const status = await mfaApi.getStatus();
       if (!status.mfa_set) {
@@ -15,8 +15,28 @@ export const useMFA = () => {
         return true;
       }
       
+      if (!status.mfa_enabled) {
+        // MFA is set up but disabled, allow operation
+        console.log('[MFA] MFA is disabled, allowing operation');
+        return true;
+      }
+      
+      // 如果指定了操作类型，检查细粒度配置
+      if (operationType && status.mfa_settings) {
+        const operationEnabled = status.mfa_settings[operationType as keyof typeof status.mfa_settings];
+        if (operationEnabled === false) {
+          // 该操作类型的 MFA 已禁用
+          console.log(`[MFA] Operation ${operationType} MFA is disabled, allowing operation`);
+          return true;
+        }
+        // 该操作类型的 MFA 已启用，需要验证
+        console.log(`[MFA] Operation ${operationType} requires MFA verification`);
+      } else {
+        // 没有指定操作类型或没有细粒度配置，使用全局开关
+        console.log('[MFA] MFA is set up, requiring verification');
+      }
+      
       // MFA is set up, require verification
-      console.log('[MFA] MFA is set up, requiring verification');
       return new Promise((resolve) => {
         setShowMFADialog(true);
         setMfaResolve(() => resolve);

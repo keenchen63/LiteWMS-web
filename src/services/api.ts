@@ -143,6 +143,19 @@ export interface AdminStatus {
   password_set: boolean;
   mfa_set: boolean;
   mfa_count: number;
+  mfa_enabled: boolean;
+  mfa_settings: {
+    inbound: boolean;
+    outbound: boolean;
+    transfer: boolean;
+    adjust: boolean;
+    category_create: boolean;
+    category_update: boolean;
+    category_delete: boolean;
+    warehouse_create: boolean;
+    warehouse_update: boolean;
+    warehouse_delete: boolean;
+  };
 }
 
 export interface MFASetupResponse {
@@ -272,6 +285,52 @@ export const mfaApi = {
         Authorization: `Bearer ${token}`
       }
     });
+  },
+
+  toggleMFA: async (enabled: boolean): Promise<{ message: string; mfa_enabled: boolean }> => {
+    const token = mfaApi.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+    
+    const response = await api.post('/api/mfa/toggle', {
+      enabled: enabled
+    }, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  },
+
+  getSettings: async (): Promise<{ settings: AdminStatus['mfa_settings'] }> => {
+    const token = mfaApi.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+    
+    const response = await api.get('/api/mfa/settings', {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  },
+
+  updateSettings: async (settings: Partial<AdminStatus['mfa_settings']>): Promise<{ message: string; settings: AdminStatus['mfa_settings'] }> => {
+    const token = mfaApi.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+    
+    const response = await api.post('/api/mfa/settings', {
+      settings: settings
+    }, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
   },
 };
 
