@@ -76,16 +76,27 @@ export const MFADialog: React.FC<MFADialogProps> = ({
         // 不清空 code，让用户可以快速修改
       }
     } catch (err: any) {
-      console.log('MFA verify error:', err); // 调试日志
+      console.error('MFA verify error:', err); // 调试日志
       // 检查是否是 429 速率限制错误
       if (err?.response?.status === 429 || err?.status === 429) {
         console.log('Rate limit detected, setting cooldown'); // 调试日志
         setRateLimited(true);
         setCooldown(60); // 60 秒冷却期
         setError(err?.response?.data?.detail || err?.detail || '请求过于频繁，请稍后再试');
+      } else if (err?.response) {
+        // API 返回了错误响应
+        const status = err.response.status;
+        const errorMsg = err.response?.data?.detail || `服务器错误 (${status})`;
+        setError(errorMsg);
+        console.error('MFA verify API error:', status, err.response.data);
+      } else if (err?.request) {
+        // 请求发送了但没有收到响应（网络问题、CORS 等）
+        setError('无法连接到服务器，请检查网络连接或联系管理员');
+        console.error('MFA verify network error:', err.request);
       } else {
         // 其他错误
-        setError(err?.response?.data?.detail || err?.detail || '验证失败，请重试');
+        setError(err?.message || err?.detail || '验证失败，请重试');
+        console.error('MFA verify unknown error:', err);
       }
       // 不清空 code，让用户可以快速修改
     } finally {
