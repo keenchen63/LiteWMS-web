@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { categoriesApi, itemsApi, transactionsApi } from '../services/api';
 import { 
   Plus, Trash2, Edit2, X, Check, Settings, Boxes, PackagePlus, 
-  Save, List, History, Calendar, Search, ShoppingCart, User, FileText, RotateCcw
+  Save, List, History, Calendar, Search, ShoppingCart, User, FileText, RotateCcw,
+  Package, Layers
 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
@@ -106,13 +107,22 @@ interface SelectedInboundItem {
   quantity: number;
 }
 
+interface CategoryBasedItem {
+  category: Category;
+  specs: Record<string, string>;
+  quantity: number;
+}
+
 const InboundEntryView: React.FC = () => {
   const { activeWarehouseId, activeWarehouseName } = useWarehouse();
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [step, setStep] = useState<1|2>(1);
+  const [mode, setMode] = useState<'inventory' | 'category'>('inventory'); // 两种模式：从库存选择 / 按品类添加
   const [selectedItems, setSelectedItems] = useState<SelectedInboundItem[]>([]);
+  const [categoryBasedItems, setCategoryBasedItems] = useState<CategoryBasedItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [inventory, setInventory] = useState<InventoryItemWithCategory[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<{ show: boolean; type: DialogType; title: string; message: string; details?: string }>({
     show: false,
@@ -130,20 +140,28 @@ const InboundEntryView: React.FC = () => {
   const [itemQuantities, setItemQuantities] = useState<Record<number, number>>({});
   // 用于跟踪哪个物品被选中（显示输入框和按钮）
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  // 用于按品类添加模式：当前选中的品类和属性值
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [categorySpecs, setCategorySpecs] = useState<Record<string, string>>({});
+  const [categoryQuantity, setCategoryQuantity] = useState<number>(1);
 
   useEffect(() => {
-    const fetchInventory = async () => {
+    const fetchData = async () => {
       setLoading(true);
       try {
-        const data = await itemsApi.getWithCategory(activeWarehouseId);
-        setInventory(data);
+        const [inventoryData, categoriesData] = await Promise.all([
+          itemsApi.getWithCategory(activeWarehouseId),
+          categoriesApi.getAll()
+        ]);
+        setInventory(inventoryData);
+        setCategories(categoriesData);
       } catch (error) {
-        console.error('Failed to fetch inventory:', error);
+        console.error('Failed to fetch data:', error);
       } finally {
         setLoading(false);
       }
     };
-    fetchInventory();
+    fetchData();
   }, [activeWarehouseId]);
 
   const filteredInventory = inventory.filter(item => {
@@ -220,10 +238,64 @@ const InboundEntryView: React.FC = () => {
     ));
   };
 
+  const handleAddCategoryItem = () => {
+    if (!selectedCategory) {
+      setDialog({
+        show: true,
+        type: 'warning',
+        title: '未选择品类',
+        message: '请先选择一个品类'
+      });
+      return;
+    }
+
+    // 验证所有属性都已填写
+    const missingAttrs = selectedCategory.attributes.filter(attr => !categorySpecs[attr.name] || !categorySpecs[attr.name].trim());
+    if (missingAttrs.length > 0) {
+      setDialog({
+        show: true,
+        type: 'warning',
+        title: '属性未完整',
+        message: `请填写所有属性：${missingAttrs.map(a => a.name).join('、')}`
+      });
+      return;
+    }
+
+    // 检查是否已添加相同规格的物品
+    const existingIndex = categoryBasedItems.findIndex(item => 
+      item.category.id === selectedCategory.id && 
+      JSON.stringify(item.specs) === JSON.stringify(categorySpecs)
+    );
+
+    if (existingIndex >= 0) {
+      // 更新数量
+      const updated = [...categoryBasedItems];
+      updated[existingIndex].quantity += categoryQuantity;
+      setCategoryBasedItems(updated);
+    } else {
+      // 添加新物品
+      setCategoryBasedItems([...categoryBasedItems, {
+        category: selectedCategory,
+        specs: { ...categorySpecs },
+        quantity: categoryQuantity
+      }]);
+    }
+
+    // 重置表单
+    setSelectedCategory(null);
+    setCategorySpecs({});
+    setCategoryQuantity(1);
+  };
+
+  const handleRemoveCategoryItem = (index: number) => {
+    setCategoryBasedItems(categoryBasedItems.filter((_, i) => i !== index));
+  };
+
   const handleBatchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (selectedItems.length === 0) {
+    const totalItems = mode === 'inventory' ? selectedItems.length : categoryBasedItems.length;
+    if (totalItems === 0) {
       setDialog({
         show: true,
         type: 'warning',
@@ -265,42 +337,92 @@ const InboundEntryView: React.FC = () => {
     setLoading(true);
 
     try {
-      // 批量处理所有入库记录
-      const promises = selectedItems.map(async (selected) => {
-        // Update item quantity (add to existing)
-        await itemsApi.update(selected.item.id!, {
-          quantity: selected.item.quantity + selected.quantity
+      if (mode === 'inventory') {
+        // 从库存选择模式：更新现有物品
+        const promises = selectedItems.map(async (selected) => {
+          // Update item quantity (add to existing)
+          await itemsApi.update(selected.item.id!, {
+            quantity: selected.item.quantity + selected.quantity
+          });
+
+          // Add transaction record
+          await transactionsApi.create({
+            warehouse_id: activeWarehouseId,
+            item_id: selected.item.id!,
+            item_name_snapshot: `${selected.item.category_name} - ${JSON.stringify(selected.item.specs)}`,
+            quantity: selected.quantity,
+            date: new Date(formData.date).toISOString(),
+            user: formData.user,
+            notes: formData.notes,
+            type: 'IN'
+          });
         });
 
-        // Add transaction record
-        await transactionsApi.create({
-          warehouse_id: activeWarehouseId,
-          item_id: selected.item.id!,
-          item_name_snapshot: `${selected.item.category_name} - ${JSON.stringify(selected.item.specs)}`,
-          quantity: selected.quantity,
-          date: new Date(formData.date).toISOString(),
-          user: formData.user,
-          notes: formData.notes,
-          type: 'IN'
-        });
-      });
+        await Promise.all(promises);
+      } else {
+        // 按品类添加模式：创建新物品或更新现有物品
+        const promises = categoryBasedItems.map(async (categoryItem) => {
+          // 检查该规格的物品是否已存在
+          const existingItems = await itemsApi.getAll(activeWarehouseId, categoryItem.category.id);
+          const existingItem = existingItems.find(item => 
+            JSON.stringify(item.specs) === JSON.stringify(categoryItem.specs)
+          );
 
-      await Promise.all(promises);
+          let itemId: number;
+          if (existingItem) {
+            // 物品已存在，更新数量
+            await itemsApi.update(existingItem.id!, {
+              quantity: existingItem.quantity + categoryItem.quantity
+            });
+            itemId = existingItem.id!;
+          } else {
+            // 物品不存在，创建新物品
+            const newItem = await itemsApi.create({
+              warehouse_id: activeWarehouseId,
+              category_id: categoryItem.category.id!,
+              specs: categoryItem.specs,
+              quantity: categoryItem.quantity
+            });
+            itemId = newItem.id!;
+          }
+
+          // Add transaction record
+          await transactionsApi.create({
+            warehouse_id: activeWarehouseId,
+            item_id: itemId,
+            item_name_snapshot: `${categoryItem.category.name} - ${Object.values(categoryItem.specs).join(' ')}`,
+            quantity: categoryItem.quantity,
+            date: new Date(formData.date).toISOString(),
+            user: formData.user,
+            notes: formData.notes,
+            type: 'IN'
+          });
+        });
+
+        await Promise.all(promises);
+      }
 
       // Reset
       setStep(1);
       setSelectedItems([]);
+      setCategoryBasedItems([]);
+      setSelectedCategory(null);
+      setCategorySpecs({});
       setFormData({
         date: new Date().toISOString().split('T')[0],
         user: '',
         notes: ''
       });
       
+      // 刷新库存数据
+      const data = await itemsApi.getWithCategory(activeWarehouseId);
+      setInventory(data);
+      
       setDialog({
         show: true,
         type: 'success',
         title: '入库成功',
-        message: `已成功入库 ${selectedItems.length} 个物品`
+        message: `已成功入库 ${totalItems} 个物品`
       });
     } catch (error) {
       console.error(error);
@@ -338,18 +460,60 @@ const InboundEntryView: React.FC = () => {
       />
 
       {step === 1 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="space-y-4">
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">当前仓库</label>
-              <div className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                {activeWarehouseName}
-              </div>
-            </div>
+        <div className="space-y-6">
+          {/* 模式切换 */}
+          <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
+            <button
+              onClick={() => {
+                setMode('inventory');
+                setSelectedItems([]);
+                setCategoryBasedItems([]);
+                setSelectedCategory(null);
+                setCategorySpecs({});
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                mode === 'inventory'
+                  ? 'bg-blue-50 text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Package size={16} />
+              从库存选择
+            </button>
+            <button
+              onClick={() => {
+                setMode('category');
+                setSelectedItems([]);
+                setCategoryBasedItems([]);
+                setSelectedCategory(null);
+                setCategorySpecs({});
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                mode === 'category'
+                  ? 'bg-blue-50 text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Layers size={16} />
+              按品类添加
+            </button>
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">选择入库物品</label>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* 左侧：物品选择区域 */}
+            <div className="space-y-4">
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">当前仓库</label>
+                <div className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  {activeWarehouseName}
+                </div>
+              </div>
+
+              {mode === 'inventory' ? (
+                /* 从库存选择模式 */
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">选择入库物品</label>
               <div className="relative mb-2">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input 
@@ -416,76 +580,213 @@ const InboundEntryView: React.FC = () => {
                 {filteredInventory.length === 0 && <div className="p-4 text-center text-gray-400 text-sm">无可用库存</div>}
               </div>
             </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-bold text-slate-800">已选择物品 ({selectedItems.length})</h4>
-                {selectedItems.length > 0 && (
-                  <button
-                    onClick={() => setSelectedItems([])}
-                    className="text-xs text-red-600 hover:text-red-700 font-medium"
-                  >
-                    清空
-                  </button>
-                )}
-              </div>
-              
-              {selectedItems.length === 0 ? (
-                <div className="text-sm text-slate-500 text-center py-8">暂无选择物品</div>
               ) : (
-                <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                  {selectedItems.map((selected) => (
-                    <div key={selected.item.id} className="bg-white p-3 rounded-lg border border-gray-200">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <div className="font-medium text-slate-800 text-sm">{selected.item.category_name}</div>
-                          <div className="text-xs text-slate-500 mt-1">
-                            {Object.values(selected.item.specs).join(' ')}
-                          </div>
+                /* 按品类添加模式 */
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">选择品类并填写属性</label>
+                  
+                  {/* 品类选择 */}
+                  <div className="mb-3">
+                    <select
+                      value={selectedCategory?.id || ''}
+                      onChange={(e) => {
+                        const categoryId = Number(e.target.value);
+                        const category = categories.find(c => c.id === categoryId);
+                        setSelectedCategory(category || null);
+                        setCategorySpecs({});
+                        setCategoryQuantity(1);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    >
+                      <option value="">-- 请选择品类 --</option>
+                      {categories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 属性输入 */}
+                  {selectedCategory && (
+                    <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h4 className="text-sm font-semibold text-slate-800 mb-3">{selectedCategory.name} - 属性设置</h4>
+                      {selectedCategory.attributes.map((attr) => (
+                        <div key={attr.name}>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">
+                            {attr.name} <span className="text-red-500">*</span>
+                          </label>
+                          {attr.options.length > 0 ? (
+                            <select
+                              value={categorySpecs[attr.name] || ''}
+                              onChange={(e) => setCategorySpecs({ ...categorySpecs, [attr.name]: e.target.value })}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                              required
+                            >
+                              <option value="">-- 请选择 --</option>
+                              {attr.options.map(opt => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={categorySpecs[attr.name] || ''}
+                              onChange={(e) => setCategorySpecs({ ...categorySpecs, [attr.name]: e.target.value })}
+                              placeholder={`请输入${attr.name}`}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                              required
+                            />
+                          )}
                         </div>
-                        <button
-                          onClick={() => handleRemoveItem(selected.item.id!)}
-                          className="text-red-500 hover:text-red-700 ml-2"
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <label className="text-xs text-slate-600">数量:</label>
+                      ))}
+                      
+                      {/* 数量输入 */}
+                      <div className="pt-2 border-t border-blue-200">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">入库数量 <span className="text-red-500">*</span></label>
                         <input
                           type="number"
                           min="1"
-                          value={selected.quantity}
-                          onChange={e => handleUpdateItemQuantity(selected.item.id!, Number(e.target.value))}
-                          className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                          value={categoryQuantity}
+                          onChange={(e) => setCategoryQuantity(Math.max(1, Number(e.target.value)))}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         />
                       </div>
+
+                      {/* 添加按钮 */}
+                      <button
+                        onClick={handleAddCategoryItem}
+                        className="w-full mt-3 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Plus size={16} />
+                        添加到入库列表
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>
 
-            <button
-              onClick={() => {
-                if (selectedItems.length === 0) {
-                  setDialog({
-                    show: true,
-                    type: 'warning',
-                    title: '未选择物品',
-                    message: '请至少选择一个物品进行入库'
-                  });
-                  return;
-                }
-                setStep(2);
-              }}
-              disabled={selectedItems.length === 0}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-blue-100 transition-all flex justify-center items-center gap-2"
-            >
-              下一步：填写入库信息
-            </button>
+            {/* 右侧：已选择物品列表和下一步按钮 */}
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-bold text-slate-800">
+                    已选择物品 ({mode === 'inventory' ? selectedItems.length : categoryBasedItems.length})
+                  </h4>
+                  {(mode === 'inventory' ? selectedItems.length : categoryBasedItems.length) > 0 && (
+                    <button
+                      onClick={() => {
+                        if (mode === 'inventory') {
+                          setSelectedItems([]);
+                        } else {
+                          setCategoryBasedItems([]);
+                        }
+                      }}
+                      className="text-xs text-red-600 hover:text-red-700 font-medium"
+                    >
+                      清空
+                    </button>
+                  )}
+                </div>
+                
+                {mode === 'inventory' ? (
+                  /* 从库存选择模式的已选列表 */
+                  selectedItems.length === 0 ? (
+                    <div className="text-sm text-slate-500 text-center py-8">暂无选择物品</div>
+                  ) : (
+                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                      {selectedItems.map((selected) => (
+                        <div key={selected.item.id} className="bg-white p-3 rounded-lg border border-gray-200">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="font-medium text-slate-800 text-sm">{selected.item.category_name}</div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {Object.values(selected.item.specs).join(' ')}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveItem(selected.item.id!)}
+                              className="text-red-500 hover:text-red-700 ml-2"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <label className="text-xs text-slate-600">数量:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={selected.quantity}
+                              onChange={e => handleUpdateItemQuantity(selected.item.id!, Number(e.target.value))}
+                              className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  /* 按品类添加模式的已选列表 */
+                  categoryBasedItems.length === 0 ? (
+                    <div className="text-sm text-slate-500 text-center py-8">暂无选择物品</div>
+                  ) : (
+                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                      {categoryBasedItems.map((item, index) => (
+                        <div key={index} className="bg-white p-3 rounded-lg border border-gray-200">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="font-medium text-slate-800 text-sm">{item.category.name}</div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {Object.entries(item.specs).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveCategoryItem(index)}
+                              className="text-red-500 hover:text-red-700 ml-2"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <label className="text-xs text-slate-600">数量:</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={e => {
+                                const updated = [...categoryBasedItems];
+                                updated[index].quantity = Math.max(1, Number(e.target.value));
+                                setCategoryBasedItems(updated);
+                              }}
+                              className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+
+              <button
+                onClick={() => {
+                  const totalItems = mode === 'inventory' ? selectedItems.length : categoryBasedItems.length;
+                  if (totalItems === 0) {
+                    setDialog({
+                      show: true,
+                      type: 'warning',
+                      title: '未选择物品',
+                      message: '请至少选择一个物品进行入库'
+                    });
+                    return;
+                  }
+                  setStep(2);
+                }}
+                disabled={(mode === 'inventory' ? selectedItems.length : categoryBasedItems.length) === 0}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-blue-100 transition-all flex justify-center items-center gap-2"
+              >
+                下一步：填写入库信息
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -499,7 +800,7 @@ const InboundEntryView: React.FC = () => {
 
           <div className="mb-6 pb-6 border-b border-gray-100">
             <h3 className="text-xl font-bold text-slate-900 mb-2">第二步：填写入库信息</h3>
-            <p className="text-sm text-slate-500">已选择 {selectedItems.length} 个物品，请填写入库信息</p>
+            <p className="text-sm text-slate-500">已选择 {mode === 'inventory' ? selectedItems.length : categoryBasedItems.length} 个物品，请填写入库信息</p>
           </div>
 
           <form onSubmit={handleBatchSubmit} className="space-y-6">
