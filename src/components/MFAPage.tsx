@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, Trash2, Plus, Power, Settings } from 'lucide-react';
+import { Shield, Lock, Key, CheckCircle, AlertCircle, Copy, Trash2, Plus, Power, Settings, X, ArrowRight } from 'lucide-react';
 import { mfaApi, MFADeviceInfo } from '../services/api';
 
 // 细粒度设置开关组件
@@ -44,6 +44,8 @@ export const MFAPage: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<'password' | 'mfa'>('mfa');
   const [mfaEnabled, setMfaEnabled] = useState(true);
+  const [showAddDeviceDialog, setShowAddDeviceDialog] = useState(false);
+  const [addDeviceStep, setAddDeviceStep] = useState<'name' | 'scan'>('name');
   const [mfaSettings, setMfaSettings] = useState<{
     inbound: boolean;
     outbound: boolean;
@@ -409,8 +411,10 @@ export const MFAPage: React.FC = () => {
       const response = await mfaApi.setupMFA(deviceName.trim());
       setMfaSecret(response.secret);
       setQrCodeUrl(response.qr_code_url);
-      setSuccess('MFA 设备添加成功，请验证验证码');
-      setDeviceName('');
+      // 打开对话框并进入扫描步骤
+      setShowAddDeviceDialog(true);
+      setAddDeviceStep('scan');
+      setSuccess('');
       // 刷新设备列表
       await loadDevices();
     } catch (err: any) {
@@ -468,24 +472,18 @@ export const MFAPage: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      // If we have a secret from a newly added device, verify locally first
-      // This helps catch issues immediately without waiting for database sync
-      if (mfaSecret) {
-        try {
-          // Import pyotp-like verification (we'll use the API, but this is a fallback check)
-          // Actually, let's just use the API but with better error handling
-        } catch (localErr) {
-          console.warn('Local verification failed, trying API:', localErr);
-        }
-      }
-      
       await mfaApi.verifyMFA(verificationCode);
-      setSuccess('MFA 验证成功！');
+      setSuccess('MFA 验证成功！设备已添加');
       setVerificationCode('');
       setMfaSecret('');
       setQrCodeUrl('');
+      setDeviceName('');
+      // 关闭对话框
+      setShowAddDeviceDialog(false);
+      setAddDeviceStep('name');
       // 刷新设备列表
       await loadDevices();
+      setTimeout(() => setSuccess(''), 2000);
     } catch (err: any) {
       const errorMsg = err.response?.data?.detail || '验证码错误';
       setError(errorMsg);
@@ -495,6 +493,16 @@ export const MFAPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCloseAddDeviceDialog = () => {
+    setShowAddDeviceDialog(false);
+    setAddDeviceStep('name');
+    setDeviceName('');
+    setQrCodeUrl('');
+    setMfaSecret('');
+    setVerificationCode('');
+    setError('');
   };
 
   const copySecret = () => {
@@ -622,8 +630,8 @@ export const MFAPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-slate-100 p-4">
-      <div className="max-w-2xl mx-auto pt-8">
-        <div className="bg-white rounded-xl shadow-xl p-8">
+      <div className="max-w-2xl md:max-w-4xl lg:max-w-5xl mx-auto pt-8">
+        <div className="bg-white rounded-xl shadow-xl p-6 md:p-8">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
               <Shield size={32} className="text-blue-600" />
@@ -899,50 +907,83 @@ export const MFAPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Step-by-step guide for adding MFA device */}
-              {!qrCodeUrl && (
-                <div className="mb-6 space-y-4">
-                  {devices.length === 0 && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="font-medium text-blue-900 mb-1">开始设置 MFA</div>
-                          <div className="text-sm text-blue-700">
-                            为了增强账户安全性，请至少添加一个 MFA 设备。您可以添加多个设备作为备用。
-                          </div>
+              {/* Add Device Button */}
+              <div className="mt-6">
+                {devices.length === 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="font-medium text-blue-900 mb-1">开始设置 MFA</div>
+                        <div className="text-sm text-blue-700">
+                          为了增强账户安全性，请至少添加一个 MFA 设备。您可以添加多个设备作为备用。
                         </div>
                       </div>
                     </div>
-                  )}
-
-                  <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                    <div className="text-sm font-medium text-slate-900 mb-3">添加设备步骤：</div>
-                    <ol className="space-y-2 text-sm text-slate-700">
-                      <li className="flex items-start gap-2">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">1</span>
-                        <span>在下方输入设备名称（如：iPhone、备用手机等），点击"添加新设备"</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">2</span>
-                        <span>使用身份验证器应用（如 Google Authenticator、Microsoft Authenticator）扫描显示的二维码</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">3</span>
-                        <span>在身份验证器中输入显示的 6 位验证码进行验证</span>
-                      </li>
-                      <li className="flex items-start gap-2">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">4</span>
-                        <span>验证成功后，设备将添加到列表中，可用于后续的 MFA 验证</span>
-                      </li>
-                    </ol>
                   </div>
-                </div>
-              )}
+                )}
+                <button
+                  onClick={() => {
+                    setShowAddDeviceDialog(true);
+                    setAddDeviceStep('name');
+                    setDeviceName('');
+                    setError('');
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} />
+                  添加新设备
+                </button>
+              </div>
+            </div>
+            )}
+          </div>
+        </div>
+      </div>
 
-              {/* Add Device Form */}
-              {!qrCodeUrl && (
+      {/* Add Device Wizard Dialog */}
+      {showAddDeviceDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in">
+            {/* Dialog Header */}
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Shield size={20} className="text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">添加 MFA 设备</h2>
+                  <p className="text-sm text-slate-500">
+                    {addDeviceStep === 'name' && '步骤 1/2：输入设备名称'}
+                    {addDeviceStep === 'scan' && '步骤 2/2：扫描二维码并验证'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseAddDeviceDialog}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Dialog Content */}
+            <div className="p-6 space-y-6">
+              {/* Step 1: Device Name */}
+              {addDeviceStep === 'name' && (
                 <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="font-medium text-blue-900 mb-1">为设备命名</div>
+                        <div className="text-sm text-blue-700">
+                          为您的 MFA 设备起一个容易识别的名称，例如：iPhone、备用手机、工作电脑等。
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       设备名称 <span className="text-red-500">*</span>
@@ -951,41 +992,67 @@ export const MFAPage: React.FC = () => {
                       type="text"
                       value={deviceName}
                       onChange={(e) => setDeviceName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && deviceName.trim()) {
+                          handleSetupMFA();
+                        }
+                      }}
                       placeholder="例如：iPhone、备用手机、工作电脑等"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      autoFocus
                     />
-                    <p className="mt-1 text-xs text-gray-500">为设备起一个容易识别的名称，方便后续管理</p>
+                    <p className="mt-2 text-xs text-gray-500">为设备起一个容易识别的名称，方便后续管理</p>
                   </div>
-                  <button
-                    onClick={handleSetupMFA}
-                    disabled={loading || !deviceName.trim()}
-                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Plus size={18} />
-                    {loading ? '生成中...' : '添加新设备'}
-                  </button>
+
+                  {error && (
+                    <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg">
+                      <AlertCircle size={16} />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleCloseAddDeviceDialog}
+                      className="flex-1 px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleSetupMFA}
+                      disabled={loading || !deviceName.trim()}
+                      className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      {loading ? '生成中...' : (
+                        <>
+                          下一步
+                          <ArrowRight size={18} />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* QR Code and Verification Step */}
-              {qrCodeUrl && (
-                <div className="mt-6 space-y-4">
+              {/* Step 2: Scan QR Code and Verify */}
+              {addDeviceStep === 'scan' && qrCodeUrl && (
+                <div className="space-y-4">
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <div className="flex items-start gap-3">
                       <AlertCircle size={20} className="text-amber-600 mt-0.5 flex-shrink-0" />
                       <div>
-                        <div className="font-medium text-amber-900 mb-1">步骤 2：扫描二维码</div>
+                        <div className="font-medium text-amber-900 mb-1">扫描二维码</div>
                         <div className="text-sm text-amber-700">
-                          请使用您的身份验证器应用扫描下方二维码。如果无法扫描，也可以手动输入 Secret Key。
+                          请使用您的身份验证器应用（如 Google Authenticator、Microsoft Authenticator）扫描下方二维码。
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex justify-center bg-white p-4 rounded-lg border-2 border-dashed border-gray-300">
-                    <img src={qrCodeUrl} alt="MFA QR Code" className="border-2 border-gray-200 rounded-lg max-w-xs" />
+                  <div className="flex justify-center bg-white p-6 rounded-lg border-2 border-dashed border-gray-300">
+                    <img src={qrCodeUrl} alt="MFA QR Code" className="border-2 border-gray-200 rounded-lg w-64 h-64" />
                   </div>
-                  
+
                   {mfaSecret && (
                     <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                       <div className="flex items-center justify-between mb-2">
@@ -998,10 +1065,12 @@ export const MFAPage: React.FC = () => {
                           复制
                         </button>
                       </div>
-                      <code className="text-xs text-slate-600 break-all font-mono bg-white px-2 py-1 rounded border block">
+                      <code className="text-xs text-slate-600 break-all font-mono bg-white px-3 py-2 rounded border block">
                         {mfaSecret}
                       </code>
-                      <p className="mt-2 text-xs text-gray-500">如果无法扫描二维码，可以在身份验证器中选择"手动输入密钥"，然后粘贴上面的 Secret Key</p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        如果无法扫描二维码，可以在身份验证器中选择"手动输入密钥"，然后粘贴上面的 Secret Key
+                      </p>
                     </div>
                   )}
 
@@ -1009,11 +1078,11 @@ export const MFAPage: React.FC = () => {
                     <div className="flex items-start gap-3">
                       <AlertCircle size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
                       <div className="flex-1">
-                        <div className="font-medium text-blue-900 mb-1">步骤 3：验证设备</div>
+                        <div className="font-medium text-blue-900 mb-1">验证设备</div>
                         <div className="text-sm text-blue-700 mb-3">
                           扫描二维码后，身份验证器应用会显示一个 6 位数字验证码。请在下方输入该验证码进行验证。
                         </div>
-                        <div className="flex gap-2">
+                        <div>
                           <input
                             type="text"
                             inputMode="numeric"
@@ -1023,44 +1092,69 @@ export const MFAPage: React.FC = () => {
                             onChange={(e) => {
                               const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                               setVerificationCode(value);
+                              setError('');
                             }}
-                            className="flex-1 px-4 py-2 text-center text-xl font-bold tracking-widest border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && verificationCode.length === 6) {
+                                handleVerifyMFA();
+                              }
+                            }}
+                            className="w-full px-4 py-3 text-center text-2xl font-bold tracking-widest border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
                             placeholder="000000"
                             autoFocus
                           />
-                          <button
-                            onClick={handleVerifyMFA}
-                            disabled={loading || verificationCode.length !== 6}
-                            className="px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition-colors"
-                          >
-                            {loading ? '验证中...' : '验证'}
-                          </button>
+                          {verificationCode.length > 0 && verificationCode.length < 6 && (
+                            <p className="mt-2 text-xs text-amber-600">请输入完整的 6 位验证码</p>
+                          )}
                         </div>
-                        {verificationCode.length > 0 && verificationCode.length < 6 && (
-                          <p className="mt-2 text-xs text-amber-600">请输入完整的 6 位验证码</p>
-                        )}
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setQrCodeUrl('');
-                      setMfaSecret('');
-                      setVerificationCode('');
-                      setDeviceName('');
-                    }}
-                    className="w-full text-sm text-gray-600 hover:text-gray-700 py-2"
-                  >
-                    取消添加
-                  </button>
+                  {error && (
+                    <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg">
+                      <AlertCircle size={16} />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  {success && (
+                    <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 p-3 rounded-lg">
+                      <CheckCircle size={16} />
+                      <span>{success}</span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setAddDeviceStep('name');
+                        setError('');
+                        setVerificationCode('');
+                      }}
+                      className="flex-1 px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                    >
+                      上一步
+                    </button>
+                    <button
+                      onClick={handleVerifyMFA}
+                      disabled={loading || verificationCode.length !== 6}
+                      className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                      {loading ? '验证中...' : (
+                        <>
+                          <CheckCircle size={18} />
+                          完成验证
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
-            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
