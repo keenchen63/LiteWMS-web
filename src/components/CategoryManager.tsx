@@ -3,7 +3,7 @@ import { categoriesApi, itemsApi, transactionsApi } from '../services/api';
 import { 
   Plus, Trash2, Edit2, X, Check, Settings, Boxes, PackagePlus, 
   Save, List, Calendar, Search, ShoppingCart, User, FileText, RotateCcw,
-  Package, Layers, Building2, Upload, Download
+  Package, Layers, Building2, Upload, Download, CheckCircle
 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
@@ -300,6 +300,7 @@ const InboundEntryView: React.FC = () => {
         // 查找对应的品类
         const category = categories.find(c => c.name === row.categoryName);
         if (!category) {
+          setLoading(false);
           setDialog({
             show: true,
             type: 'error',
@@ -1673,6 +1674,8 @@ const CategoryPanel: React.FC = () => {
     message: ''
   });
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; category: Category | null }>({ show: false, category: null });
+  const [pendingImportData, setPendingImportData] = useState<Array<{ name: string; attributes: Array<{ name: string; options: string[] }> }> | null>(null);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -1830,25 +1833,82 @@ const CategoryPanel: React.FC = () => {
     setAttributes(newAttrs.length ? newAttrs : [{ name: '', options: [] }]);
   };
 
+  // 解析 Excel 文件，展示预览数据
   const handleImportCategoryExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // 清空文件输入（提前清空，避免重复触发）
+    e.target.value = '';
+
     try {
       setLoading(true);
-      const importedRows = await parseCategoryExcel(file);
+      console.log('[Import] Starting category Excel parsing...');
       
-      // MFA 验证
-      const mfaVerified = await requireMFA('category_create');
-      if (!mfaVerified) {
+      const importedRows = await parseCategoryExcel(file);
+      console.log('[Import] Parsed rows:', importedRows.length);
+      
+      // 检查是否有重复的品类名称
+      const duplicates: string[] = [];
+      const uniqueNames = new Set<string>();
+      for (const row of importedRows) {
+        if (uniqueNames.has(row.name)) {
+          duplicates.push(row.name);
+        } else {
+          uniqueNames.add(row.name);
+        }
+      }
+
+      if (duplicates.length > 0) {
+        setDialog({
+          show: true,
+          type: 'error',
+          title: '解析失败',
+          message: `Excel 文件中存在重复的品类名称：${duplicates.join(', ')}`
+        });
+        setLoading(false);
         return;
       }
+
+      // 保存解析后的数据，供用户预览和确认
+      setPendingImportData(importedRows);
+      setLoading(false);
+      console.log('[Import] Excel parsed successfully, showing preview');
+    } catch (error: any) {
+      console.error('[Import] Category Excel parsing error:', error);
+      setDialog({
+        show: true,
+        type: 'error',
+        title: '解析失败',
+        message: error.message || 'Excel 文件解析失败，请检查文件格式'
+      });
+      setLoading(false);
+    }
+  };
+
+  // 确认导入，进行 MFA 验证并实际导入
+  const handleConfirmImport = async () => {
+    if (!pendingImportData || pendingImportData.length === 0) return;
+
+    try {
+      setImporting(true);
+      console.log('[Import] Starting category import with MFA verification...');
+      
+      // MFA 验证
+      console.log('[Import] Requesting MFA verification...');
+      const mfaVerified = await requireMFA('category_create');
+      if (!mfaVerified) {
+        console.log('[Import] MFA verification cancelled or failed');
+        setImporting(false);
+        return;
+      }
+      console.log('[Import] MFA verification passed');
 
       let successCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
 
-      for (const row of importedRows) {
+      for (const row of pendingImportData) {
         try {
           // 检查品类是否已存在
           const existing = categories.find(c => c.name === row.name);
@@ -1870,8 +1930,13 @@ const CategoryPanel: React.FC = () => {
       }
 
       // 刷新品类列表
+      console.log('[Import] Refreshing categories list...');
       const data = await categoriesApi.getAll();
       setCategories(data);
+      console.log('[Import] Categories refreshed');
+
+      // 清空预览数据
+      setPendingImportData(null);
 
       if (errorCount === 0) {
         setDialog({
@@ -1889,27 +1954,25 @@ const CategoryPanel: React.FC = () => {
           details: errors.join('\n')
         });
       }
+      console.log('[Import] Import completed successfully');
     } catch (error: any) {
+      console.error('[Import] Category import error:', error);
       setDialog({
         show: true,
         type: 'error',
         title: '导入失败',
-        message: error.message || 'Excel 文件解析失败，请检查文件格式'
+        message: error.message || '导入过程中发生错误'
       });
     } finally {
-      setLoading(false);
-      // 清空文件输入
-      e.target.value = '';
+      console.log('[Import] Setting importing to false');
+      setImporting(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="col-span-full text-center text-slate-500 py-8">加载中...</div>
-      </div>
-    );
-  }
+  // 取消导入预览
+  const handleCancelImport = () => {
+    setPendingImportData(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -1919,6 +1982,7 @@ const CategoryPanel: React.FC = () => {
           onClick={() => {
             setMode('add');
             resetForm();
+            setPendingImportData(null);
           }}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
             mode === 'add'
@@ -1933,6 +1997,7 @@ const CategoryPanel: React.FC = () => {
           onClick={() => {
             setMode('import');
             resetForm();
+            setPendingImportData(null);
           }}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
             mode === 'import'
@@ -1945,6 +2010,16 @@ const CategoryPanel: React.FC = () => {
         </button>
       </div>
 
+      {/* 加载状态覆盖层 - 只在初始加载时显示，不影响对话框 */}
+      {loading && !showMFADialog && !dialog.show && !pendingImportData && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="col-span-full text-center text-slate-500 py-8">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+            <p>处理中...</p>
+          </div>
+        </div>
+      )}
+
       {/* Info Dialog */}
       <Dialog
         type={dialog.type}
@@ -1956,7 +2031,7 @@ const CategoryPanel: React.FC = () => {
         details={dialog.details}
       />
 
-      {/* MFA Dialog */}
+      {/* MFA Dialog - 必须始终渲染，即使 loading 为 true */}
       <MFADialog
         show={showMFADialog}
         onVerify={handleMFAVerify}
@@ -2180,32 +2255,131 @@ const CategoryPanel: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-lg border-2 border-dashed border-gray-300 text-center">
-                <div className="relative inline-block mb-4">
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls"
-                    onChange={handleImportCategoryExcel}
-                    className="hidden"
-                    id="category-import-file"
-                  />
-                  <label
-                    htmlFor="category-import-file"
-                    className="flex flex-col items-center gap-3 px-8 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors"
+              {!pendingImportData ? (
+                <div className="bg-white p-6 rounded-lg border-2 border-dashed border-gray-300 text-center">
+                  <div className="relative inline-block mb-4">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleImportCategoryExcel}
+                      className="hidden"
+                      id="category-import-file"
+                      disabled={loading}
+                    />
+                    <label
+                      htmlFor="category-import-file"
+                      className={`flex flex-col items-center gap-3 px-8 py-6 rounded-lg cursor-pointer transition-colors ${
+                        loading 
+                          ? 'bg-gray-400 text-white cursor-not-allowed' 
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      <Upload size={40} />
+                      <span className="font-medium text-lg">选择 Excel 文件</span>
+                      <span className="text-sm opacity-90">支持 .xlsx 和 .xls 格式</span>
+                    </label>
+                  </div>
+                  <button
+                    onClick={generateCategoryTemplate}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium mx-auto"
                   >
-                    <Upload size={40} />
-                    <span className="font-medium text-lg">选择 Excel 文件</span>
-                    <span className="text-sm opacity-90">支持 .xlsx 和 .xls 格式</span>
-                  </label>
+                    <Download size={18} />
+                    下载导入模板
+                  </button>
                 </div>
-                <button
-                  onClick={generateCategoryTemplate}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium mx-auto"
-                >
-                  <Download size={18} />
-                  下载导入模板
-                </button>
-              </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="text-green-600" size={20} />
+                      <h4 className="font-medium text-green-900">Excel 文件解析成功</h4>
+                    </div>
+                    <p className="text-sm text-green-700">
+                      已解析 {pendingImportData.length} 个品类，请确认数据无误后点击"确认导入"按钮
+                    </p>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="max-h-[500px] overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b border-gray-200">品类名称</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 border-b border-gray-200">属性</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {pendingImportData.map((row, index) => (
+                            <tr key={index} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                {row.name}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="space-y-2">
+                                  {row.attributes.map((attr, attrIndex) => (
+                                    <div key={attrIndex} className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-gray-500 min-w-[60px]">{attr.name}:</span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {attr.options.length > 0 ? (
+                                          attr.options.map((opt, optIndex) => (
+                                            <span 
+                                              key={optIndex} 
+                                              className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs"
+                                            >
+                                              {opt}
+                                            </span>
+                                          ))
+                                        ) : (
+                                          <span className="text-xs text-gray-400 italic">任意输入</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleConfirmImport}
+                      disabled={importing}
+                      className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+                        importing
+                          ? 'bg-gray-400 text-white cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {importing ? (
+                        <>
+                          <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          导入中...
+                        </>
+                      ) : (
+                        <>
+                          <Check size={18} />
+                          确认导入
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleCancelImport}
+                      disabled={importing}
+                      className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                        importing
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
