@@ -7,7 +7,7 @@ import {
 import { Dialog, DialogType } from './Dialog';
 import { MFADialog } from './MFADialog';
 import { useMFA } from '../hooks/useMFA';
-import type { Warehouse, InventoryItemWithCategory, Transaction } from '../types';
+import type { Warehouse, InventoryItemWithCategory } from '../types';
 
 interface SelectedTransferItem {
   item: InventoryItemWithCategory;
@@ -1020,7 +1020,6 @@ interface MergedTransferRecord {
 
 const TransferHistory: React.FC = () => {
   const { activeWarehouseId, warehouses } = useWarehouse();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [mergedRecords, setMergedRecords] = useState<MergedTransferRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState('');
@@ -1034,7 +1033,6 @@ const TransferHistory: React.FC = () => {
           'TRANSFER',
           filterDate || undefined
         );
-        setTransactions(data);
         
         // 处理调拨记录：根据当前仓库视角显示调出或调入
         // 根据调拨创建逻辑：
