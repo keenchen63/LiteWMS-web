@@ -127,7 +127,7 @@ const InboundEntryView: React.FC = () => {
   const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
 
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: '',
     user: '',
     notes: ''
   });
@@ -448,6 +448,17 @@ const InboundEntryView: React.FC = () => {
       return;
     }
 
+    // 验证日期必填
+    if (!formData.date || formData.date.trim() === '') {
+      setDialog({
+        show: true,
+        type: 'warning',
+        title: '日期必填',
+        message: '请选择入库日期'
+      });
+      return;
+    }
+
     // 验证操作人必填
     if (!formData.user || formData.user.trim() === '') {
       setDialog({
@@ -588,7 +599,7 @@ const InboundEntryView: React.FC = () => {
       setSelectedCategory(null);
       setCategorySpecs({});
       setFormData({
-        date: new Date().toISOString().split('T')[0],
+        date: '',
         user: '',
         notes: ''
       });

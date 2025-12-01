@@ -48,7 +48,7 @@ const OutboundForm: React.FC = () => {
   const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
 
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: '',
     user: '',
     notes: ''
   });
@@ -169,6 +169,17 @@ const OutboundForm: React.FC = () => {
       return;
     }
 
+    // 验证日期必填
+    if (!formData.date || formData.date.trim() === '') {
+      setDialog({
+        show: true,
+        type: 'warning',
+        title: '日期必填',
+        message: '请选择出库日期'
+      });
+      return;
+    }
+
     // 验证备注必填
     if (!formData.notes || formData.notes.trim() === '') {
       setDialog({
@@ -264,7 +275,7 @@ const OutboundForm: React.FC = () => {
       setStep(1);
       setSelectedItems([]);
       setFormData({ 
-        date: new Date().toISOString().split('T')[0],
+        date: '',
         user: '',
         notes: ''
       });

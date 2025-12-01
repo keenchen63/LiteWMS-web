@@ -397,7 +397,7 @@ const TransferForm: React.FC = () => {
     });
     const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
     const [formData, setFormData] = useState({
-      date: new Date().toISOString().split('T')[0],
+      date: '',
       user: '',
       notes: ''
     });
@@ -550,6 +550,16 @@ const TransferForm: React.FC = () => {
           type: 'warning',
           title: '未选择物品',
           message: '请至少选择一个物品进行调拨'
+        });
+        return;
+      }
+
+      if (!formData.date || !formData.date.trim()) {
+        setDialog({
+          show: true,
+          type: 'warning',
+          title: '日期必填',
+          message: '请选择调拨日期'
         });
         return;
       }
@@ -712,7 +722,7 @@ const TransferForm: React.FC = () => {
         setSelectedItems([]);
         setTargetWarehouseId('');
         setFormData({
-          date: new Date().toISOString().split('T')[0],
+          date: '',
           user: '',
           notes: ''
         });
