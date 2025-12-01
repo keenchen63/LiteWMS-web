@@ -402,7 +402,7 @@ const TransferForm: React.FC = () => {
       notes: ''
     });
     // 用于存储左侧列表中每个物品的临时数量
-    const [itemQuantities, setItemQuantities] = useState<Record<number, number>>({});
+    const [itemQuantities, setItemQuantities] = useState<Record<number, number | undefined>>({});
     // 用于跟踪哪个物品被选中（显示输入框和按钮）
     const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   
@@ -427,11 +427,27 @@ const TransferForm: React.FC = () => {
       return item.category_name.toLowerCase().includes(q) || specString.toLowerCase().includes(q);
     });
 
-    const handleItemQuantityChange = (itemId: number, quantity: number) => {
+    const handleItemQuantityChange = (itemId: number, value: string) => {
       const item = inventory.find(i => i.id === itemId);
       if (!item) return;
       
-      const validQuantity = Math.max(1, Math.min(quantity, item.quantity));
+      // 允许空字符串，用于删除输入框内容
+      if (value === '') {
+        setItemQuantities({
+          ...itemQuantities,
+          [itemId]: undefined
+        });
+        return;
+      }
+      
+      const numValue = Number(value);
+      // 如果输入无效（NaN），保持原值或设为空
+      if (isNaN(numValue)) {
+        return;
+      }
+      
+      // 只验证范围，不强制设置
+      const validQuantity = Math.max(1, Math.min(numValue, item.quantity));
       setItemQuantities({
         ...itemQuantities,
         [itemId]: validQuantity
@@ -439,17 +455,19 @@ const TransferForm: React.FC = () => {
     };
 
     const handleAddItem = (item: InventoryItemWithCategory) => {
-      const quantity = itemQuantities[item.id!] || 1;
+      const rawQuantity = itemQuantities[item.id!];
+      const quantity = (rawQuantity === undefined || rawQuantity === null) ? 1 : rawQuantity;
+      const validQuantity = Math.max(1, Math.min(quantity, item.quantity));
       
       // 检查是否已添加
       if (selectedItems.some(selected => selected.item.id === item.id)) {
         // 如果已添加，更新数量
-        handleUpdateItemQuantity(item.id!, quantity);
+        handleUpdateItemQuantity(item.id!, validQuantity);
       } else {
         // 添加到列表
         setSelectedItems([...selectedItems, {
           item,
-          quantity: Math.max(1, Math.min(quantity, item.quantity))
+          quantity: validQuantity
         }]);
       }
       
@@ -470,13 +488,7 @@ const TransferForm: React.FC = () => {
         setSelectedItemId(null);
       } else {
         setSelectedItemId(item.id!);
-        // 如果该物品还没有数量，设置默认值为1
-        if (!itemQuantities[item.id!]) {
-          setItemQuantities({
-            ...itemQuantities,
-            [item.id!]: 1
-          });
-        }
+        // 不自动设置默认值，让用户自己输入
       }
     };
 
@@ -805,7 +817,7 @@ const TransferForm: React.FC = () => {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                     <input 
                       type="text"
-                      placeholder="快速搜索"
+                      placeholder="多个关键词使用空格分隔"
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
@@ -815,7 +827,8 @@ const TransferForm: React.FC = () => {
                     {filteredInventory.map(item => {
                       const isSelected = selectedItems.some(s => s.item.id === item.id);
                       const isActive = selectedItemId === item.id;
-                      const tempQuantity = itemQuantities[item.id!] || 1;
+                      const tempQuantity = itemQuantities[item.id!];
+                      const displayValue = tempQuantity === undefined ? '' : tempQuantity;
                       return (
                         <div 
                           key={item.id}
@@ -833,7 +846,7 @@ const TransferForm: React.FC = () => {
                                 )}
                               </div>
                               <div className="text-xs text-slate-500 mt-1">
-                                {Object.values(item.specs).join(' ')}
+                                {Object.entries(item.specs).map(([k, v]) => `${k}: ${v}`).join(', ')}
                               </div>
                             </div>
                             <span className="text-xs font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-600 ml-2">库存: {item.quantity}</span>
@@ -845,8 +858,8 @@ const TransferForm: React.FC = () => {
                                 type="number"
                                 min="1"
                                 max={item.quantity}
-                                value={tempQuantity}
-                                onChange={e => handleItemQuantityChange(item.id!, Number(e.target.value))}
+                                value={displayValue}
+                                onChange={e => handleItemQuantityChange(item.id!, e.target.value)}
                                 className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                 placeholder="数量"
                                 autoFocus
@@ -893,7 +906,7 @@ const TransferForm: React.FC = () => {
                           <div className="flex items-start justify-between mb-2">
                             <div className="flex-1">
                               <div className="font-medium text-slate-800 text-sm">{selected.item.category_name}</div>
-                              <div className="text-xs text-slate-500 mt-1">{Object.values(selected.item.specs).join(' ')}</div>
+                              <div className="text-xs text-slate-500 mt-1">{Object.entries(selected.item.specs).map(([k, v]) => `${k}: ${v}`).join(', ')}</div>
                             </div>
                             <button
                               onClick={() => handleRemoveItem(selected.item.id!)}

@@ -170,7 +170,7 @@ export const InventoryTable: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">快速搜索</label>
               <input 
                 type="text"
-                placeholder="例如：光纤、10m、蓝色"
+                placeholder="多个关键词使用空格分隔"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-400 focus:border-gray-400 outline-none bg-white"
