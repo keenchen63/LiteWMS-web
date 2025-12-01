@@ -1739,6 +1739,8 @@ const CategoryPanel: React.FC = () => {
   const [isEditing, setIsEditing] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [attributes, setAttributes] = useState<AttributeDefinition[]>([{ name: '', options: [] }]);
+  // 用于存储属性选项输入框的原始文本值，避免输入时立即处理导致丢失最后的逗号
+  const [attributeOptionsText, setAttributeOptionsText] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<{ show: boolean; type: DialogType; title: string; message: string; details?: string }>({
     show: false,
@@ -1768,13 +1770,21 @@ const CategoryPanel: React.FC = () => {
   const resetForm = () => {
     setName('');
     setAttributes([{ name: '', options: [] }]);
+    setAttributeOptionsText({});
     setIsEditing(null);
   };
 
   const handleStartEdit = (cat: Category) => {
     setIsEditing(cat.id!);
     setName(cat.name);
-    setAttributes(cat.attributes.length > 0 ? cat.attributes : [{ name: '', options: [] }]);
+    const attrs = cat.attributes.length > 0 ? cat.attributes : [{ name: '', options: [] }];
+    setAttributes(attrs);
+    // 初始化属性选项文本值
+    const optionsText: Record<number, string> = {};
+    attrs.forEach((attr, idx) => {
+      optionsText[idx] = attr.options.join(', ');
+    });
+    setAttributeOptionsText(optionsText);
   };
 
   const handleSave = async () => {
@@ -1788,9 +1798,14 @@ const CategoryPanel: React.FC = () => {
       return;
     }
     
-    const cleanAttrs = attributes
-      .map(a => ({ name: a.name.trim(), options: a.options }))
-      .filter(a => !!a.name);
+    // 处理所有属性选项文本（确保所有输入框的值都已处理）
+    const processedAttributes = attributes.map((attr, idx) => {
+      const text = attributeOptionsText[idx] !== undefined ? attributeOptionsText[idx] : attr.options.join(', ');
+      const options = text.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
+      return { name: attr.name.trim(), options };
+    });
+
+    const cleanAttrs = processedAttributes.filter(a => !!a.name);
 
     if (cleanAttrs.length === 0) {
       setDialog({
@@ -1887,7 +1902,14 @@ const CategoryPanel: React.FC = () => {
     }
   };
 
-  const addAttributeField = () => setAttributes([...attributes, { name: '', options: [] }]);
+  const addAttributeField = () => {
+    const newIndex = attributes.length;
+    setAttributes([...attributes, { name: '', options: [] }]);
+    setAttributeOptionsText({
+      ...attributeOptionsText,
+      [newIndex]: ''
+    });
+  };
   
   const updateAttributeName = (index: number, val: string) => {
     const newAttrs = [...attributes];
@@ -1895,10 +1917,25 @@ const CategoryPanel: React.FC = () => {
     setAttributes(newAttrs);
   };
 
-  const updateAttributeOptions = (index: number, val: string) => {
+  // 更新属性选项输入框的文本值（不立即处理）
+  const updateAttributeOptionsText = (index: number, val: string) => {
+    setAttributeOptionsText({
+      ...attributeOptionsText,
+      [index]: val
+    });
+  };
+
+  // 处理属性选项文本，转换为选项数组（在失去焦点时调用）
+  const processAttributeOptions = (index: number) => {
+    const text = attributeOptionsText[index] || '';
     const newAttrs = [...attributes];
-    newAttrs[index].options = val.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
+    newAttrs[index].options = text.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
     setAttributes(newAttrs);
+    // 更新文本值（去除末尾逗号后的空字符串）
+    setAttributeOptionsText({
+      ...attributeOptionsText,
+      [index]: newAttrs[index].options.join(', ')
+    });
   };
 
   const removeAttributeField = (index: number) => {
@@ -2202,8 +2239,9 @@ const CategoryPanel: React.FC = () => {
                   <div>
                     <input 
                       type="text"
-                      value={attr.options.join(', ')}
-                      onChange={(e) => updateAttributeOptions(idx, e.target.value)}
+                      value={attributeOptionsText[idx] !== undefined ? attributeOptionsText[idx] : attr.options.join(', ')}
+                      onChange={(e) => updateAttributeOptionsText(idx, e.target.value)}
+                      onBlur={() => processAttributeOptions(idx)}
                       placeholder="预设选项: 1m, 3m, 5m"
                       className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded text-sm focus:border-blue-500 outline-none text-slate-600"
                     />

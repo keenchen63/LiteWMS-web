@@ -136,6 +136,11 @@ export const transactionsApi = {
   delete: async (id: number): Promise<void> => {
     await api.delete(`/api/transactions/${id}`);
   },
+  
+  revert: async (id: number, user: string, notes: string): Promise<Transaction> => {
+    const response = await api.post(`/api/transactions/${id}/revert`, { user, notes });
+    return response.data;
+  },
 };
 
 // MFA API
