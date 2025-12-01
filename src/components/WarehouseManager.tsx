@@ -725,7 +725,7 @@ const TransferForm: React.FC = () => {
           show: true,
           type: 'success',
           title: '调拨成功',
-          message: `已成功调拨 ${selectedItems.length} 个物品到 ${targetWarehouseName}`
+          message: `已成功调拨到 ${targetWarehouseName}`
         });
       } catch (e) {
         console.error(e);
@@ -929,6 +929,18 @@ const TransferForm: React.FC = () => {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* 总数量合计 */}
+                  {selectedItems.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-blue-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-700">总数量合计：</span>
+                        <span className="text-lg font-bold text-blue-700">
+                          {selectedItems.reduce((sum, item) => sum + item.quantity, 0)}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

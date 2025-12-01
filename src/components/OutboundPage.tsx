@@ -277,7 +277,7 @@ const OutboundForm: React.FC = () => {
         show: true,
         type: 'success',
         title: '出库成功',
-        message: `已成功出库 ${selectedItems.length} 个物品`
+        message: '已成功出库'
       });
     } catch (err) {
       console.error(err);
@@ -446,6 +446,18 @@ const OutboundForm: React.FC = () => {
                   ))}
                 </div>
               )}
+
+              {/* 总数量合计 */}
+              {selectedItems.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-700">总数量合计：</span>
+                    <span className="text-lg font-bold text-blue-700">
+                      {selectedItems.reduce((sum, item) => sum + item.quantity, 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <button
@@ -587,7 +599,7 @@ const OutboundForm: React.FC = () => {
             type="submit" 
             className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all"
           >
-            确认出库 ({selectedItems.length} 个物品)
+            确认出库
           </button>
         </div>
       </form>

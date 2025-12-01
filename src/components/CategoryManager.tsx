@@ -597,16 +597,11 @@ const InboundEntryView: React.FC = () => {
       const data = await itemsApi.getWithCategory(activeWarehouseId);
       setInventory(data);
       
-      // 计算总物品数量
-      const totalItems = mode === 'inventory' 
-        ? selectedItems.reduce((sum, item) => sum + item.quantity, 0)
-        : categoryBasedItems.reduce((sum, item) => sum + item.quantity, 0);
-      
       setDialog({
         show: true,
         type: 'success',
         title: '入库成功',
-        message: `已成功入库 ${totalItems} 个物品`
+        message: '已成功入库'
       });
     } catch (error) {
       console.error(error);
