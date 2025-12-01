@@ -87,8 +87,23 @@ export const Dialog: React.FC<DialogProps> = ({
             <h3 className="text-lg font-bold text-slate-900 mb-1">{title}</h3>
             <p className="text-slate-600 text-sm">{message}</p>
             {details && (
-              <div className="mt-3 bg-slate-50 rounded-lg p-3 text-sm text-slate-700">
-                {typeof details === 'string' ? <p>{details}</p> : details}
+              <div className="mt-3 bg-slate-50 rounded-lg p-3 text-sm text-slate-700 max-h-[300px] overflow-y-auto">
+                {typeof details === 'string' ? (
+                  <div className="space-y-1.5">
+                    {details.split('\n').map((line, index) => (
+                      <div key={index} className="py-0.5">
+                        {line.trim() && (
+                          <div className="flex items-start gap-2">
+                            <span className="text-red-500 mt-0.5">•</span>
+                            <span className="flex-1 break-words">{line.trim()}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  details
+                )}
               </div>
             )}
           </div>

@@ -83,15 +83,15 @@ export const TransactionHistoryPage: React.FC = () => {
           });
         }
         
-        // 按日期降序，同一天按ID升序（生产顺序）
+        // 按日期降序，同一天按ID降序（晚生成的排在前面）
         filtered.sort((a, b) => {
           const dateA = new Date(a.date).toDateString();
           const dateB = new Date(b.date).toDateString();
           if (dateA !== dateB) {
             return new Date(b.date).getTime() - new Date(a.date).getTime();
           }
-          // 同一天按ID升序（生产顺序）
-          return a.id! - b.id!;
+          // 同一天按ID降序（晚生成的排在前面）
+          return b.id! - a.id!;
         });
         setTransactions(filtered);
       } catch (error) {
