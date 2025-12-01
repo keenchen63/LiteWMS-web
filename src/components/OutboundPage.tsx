@@ -33,7 +33,7 @@ interface SelectedOutboundItem {
 }
 
 const OutboundForm: React.FC = () => {
-  const { activeWarehouseId } = useWarehouse();
+  const { activeWarehouseId, activeWarehouseName } = useWarehouse();
   const [step, setStep] = useState<1|2>(1);
   const [selectedItems, setSelectedItems] = useState<SelectedOutboundItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,6 +45,7 @@ const OutboundForm: React.FC = () => {
     title: '',
     message: ''
   });
+  const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -168,6 +169,13 @@ const OutboundForm: React.FC = () => {
       return;
     }
 
+    // 显示仓库确认对话框
+    setWarehouseConfirmDialog(true);
+  };
+
+  const handleWarehouseConfirm = async () => {
+    setWarehouseConfirmDialog(false);
+
     // 验证库存是否充足
     const insufficientItems = selectedItems.filter(selected => selected.quantity > selected.item.quantity);
     if (insufficientItems.length > 0) {
@@ -288,6 +296,18 @@ const OutboundForm: React.FC = () => {
         onConfirm={() => setDialog({ ...dialog, show: false })}
         onCancel={() => setDialog({ ...dialog, show: false })}
         details={dialog.details}
+      />
+
+      {/* Warehouse Confirm Dialog */}
+      <Dialog
+        type="confirm"
+        title="确认仓库"
+        message={`请确认当前操作仓库：${activeWarehouseName}`}
+        show={warehouseConfirmDialog}
+        onConfirm={handleWarehouseConfirm}
+        onCancel={() => setWarehouseConfirmDialog(false)}
+        confirmText="确认无误"
+        cancelText="取消"
       />
 
       {step === 1 ? (

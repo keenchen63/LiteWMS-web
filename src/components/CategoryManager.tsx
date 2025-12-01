@@ -108,7 +108,7 @@ interface CategoryBasedItem {
 }
 
 const InboundEntryView: React.FC = () => {
-  const { activeWarehouseId } = useWarehouse();
+  const { activeWarehouseId, activeWarehouseName } = useWarehouse();
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [step, setStep] = useState<1|2>(1);
   const [mode, setMode] = useState<'inventory' | 'category' | 'import'>('inventory'); // 三种模式：从库存选择 / 按品类添加 / 通过表格导入
@@ -124,6 +124,7 @@ const InboundEntryView: React.FC = () => {
     title: '',
     message: ''
   });
+  const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -458,6 +459,13 @@ const InboundEntryView: React.FC = () => {
       return;
     }
 
+    // 显示仓库确认对话框
+    setWarehouseConfirmDialog(true);
+  };
+
+  const handleWarehouseConfirm = async () => {
+    setWarehouseConfirmDialog(false);
+
     // MFA 验证
     const mfaVerified = await requireMFA('inbound');
     if (!mfaVerified) {
@@ -607,6 +615,18 @@ const InboundEntryView: React.FC = () => {
         onConfirm={() => setDialog({ ...dialog, show: false })}
         onCancel={() => setDialog({ ...dialog, show: false })}
         details={dialog.details}
+      />
+
+      {/* Warehouse Confirm Dialog */}
+      <Dialog
+        type="confirm"
+        title="确认仓库"
+        message={`请确认当前操作仓库：${activeWarehouseName}`}
+        show={warehouseConfirmDialog}
+        onConfirm={handleWarehouseConfirm}
+        onCancel={() => setWarehouseConfirmDialog(false)}
+        confirmText="确认无误"
+        cancelText="取消"
       />
 
       {/* MFA Dialog */}
@@ -1164,13 +1184,14 @@ interface ItemEditState {
 }
 
 const InventoryEditView: React.FC = () => {
-  const { activeWarehouseId } = useWarehouse();
+  const { activeWarehouseId, activeWarehouseName } = useWarehouse();
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [tableSearch, setTableSearch] = useState('');
   const [allItems, setAllItems] = useState<InventoryItemWithCategory[]>([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [itemEdits, setItemEdits] = useState<Record<number, ItemEditState>>({});
   const [loading, setLoading] = useState(false);
+  const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmFormData, setConfirmFormData] = useState({
     user: '',
@@ -1318,6 +1339,13 @@ const InventoryEditView: React.FC = () => {
       return;
     }
 
+    // 显示仓库确认对话框
+    setWarehouseConfirmDialog(true);
+  };
+
+  const handleWarehouseConfirm = () => {
+    setWarehouseConfirmDialog(false);
+    // 显示操作确认对话框
     setShowConfirmDialog(true);
   };
 
@@ -1485,6 +1513,18 @@ const InventoryEditView: React.FC = () => {
         onConfirm={() => setDialog({ ...dialog, show: false })}
         onCancel={() => setDialog({ ...dialog, show: false })}
         details={dialog.details}
+      />
+
+      {/* Warehouse Confirm Dialog */}
+      <Dialog
+        type="confirm"
+        title="确认仓库"
+        message={`请确认当前操作仓库：${activeWarehouseName}`}
+        show={warehouseConfirmDialog}
+        onConfirm={handleWarehouseConfirm}
+        onCancel={() => setWarehouseConfirmDialog(false)}
+        confirmText="确认无误"
+        cancelText="取消"
       />
 
       {/* MFA Dialog */}

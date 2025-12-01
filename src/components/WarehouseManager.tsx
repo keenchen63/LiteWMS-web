@@ -395,6 +395,7 @@ const TransferForm: React.FC = () => {
       title: '',
       message: ''
     });
+    const [warehouseConfirmDialog, setWarehouseConfirmDialog] = useState(false);
     const [formData, setFormData] = useState({
       date: new Date().toISOString().split('T')[0],
       user: '',
@@ -575,6 +576,13 @@ const TransferForm: React.FC = () => {
         return;
       }
 
+      // 显示仓库确认对话框
+      setWarehouseConfirmDialog(true);
+    };
+
+    const handleWarehouseConfirm = async () => {
+      setWarehouseConfirmDialog(false);
+
       // MFA 验证
       const mfaVerified = await requireMFA('transfer');
       if (!mfaVerified) {
@@ -730,6 +738,18 @@ const TransferForm: React.FC = () => {
   
     return (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        {/* Warehouse Confirm Dialog */}
+        <Dialog
+          type="confirm"
+          title="确认仓库"
+          message={`请确认当前操作仓库：${activeWarehouseName}`}
+          show={warehouseConfirmDialog}
+          onConfirm={handleWarehouseConfirm}
+          onCancel={() => setWarehouseConfirmDialog(false)}
+          confirmText="确认无误"
+          cancelText="取消"
+        />
+
         {/* MFA Dialog */}
         <MFADialog
           show={showMFADialog}
