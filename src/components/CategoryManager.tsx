@@ -1022,7 +1022,13 @@ const InboundEntryView: React.FC = () => {
 
           <div className="mb-6 pb-6 border-b border-gray-100">
             <h3 className="text-xl font-bold text-slate-900 mb-2">第二步：填写入库信息</h3>
-            <p className="text-sm text-slate-500">已选择 {mode === 'inventory' ? selectedItems.length : categoryBasedItems.length} 个物品，请填写入库信息</p>
+            <p className="text-sm text-slate-500">
+              已选择 {
+                mode === 'inventory' 
+                  ? selectedItems.reduce((sum, item) => sum + item.quantity, 0)
+                  : categoryBasedItems.reduce((sum, item) => sum + item.quantity, 0)
+              } 个物品，请填写入库信息
+            </p>
           </div>
 
           <form onSubmit={handleBatchSubmit} className="space-y-6">
@@ -1127,7 +1133,11 @@ const InboundEntryView: React.FC = () => {
                 disabled={loading}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all"
               >
-                {loading ? '处理中...' : `确认入库 (${selectedItems.length} 个物品)`}
+                {loading ? '处理中...' : `确认入库 (${
+                  mode === 'inventory' 
+                    ? selectedItems.reduce((sum, item) => sum + item.quantity, 0)
+                    : categoryBasedItems.reduce((sum, item) => sum + item.quantity, 0)
+                } 个物品)`}
               </button>
             </div>
           </form>
