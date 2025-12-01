@@ -390,8 +390,7 @@ const InboundEntryView: React.FC = () => {
         return;
       }
 
-      // 切换到按品类添加模式（导入后显示在已选列表中）
-      setMode('category');
+      // 保持导入模式，将数据存储到 categoryBasedItems（导入和按品类添加共用此数据结构）
       setCategoryBasedItems(importedItems);
       
       // 如果导入的数据中有备注，设置到表单中
