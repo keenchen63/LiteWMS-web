@@ -981,6 +981,21 @@ const InboundEntryView: React.FC = () => {
                     </div>
                   )
                 )}
+
+                {/* 总数量合计 */}
+                {(mode === 'inventory' ? selectedItems.length : categoryBasedItems.length) > 0 && (
+                  <div className="mt-4 pt-4 border-t border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-700">总数量合计：</span>
+                      <span className="text-lg font-bold text-blue-700">
+                        {mode === 'inventory' 
+                          ? selectedItems.reduce((sum, item) => sum + item.quantity, 0)
+                          : categoryBasedItems.reduce((sum, item) => sum + item.quantity, 0)
+                        }
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {mode === 'import' && categoryBasedItems.length === 0 && (
@@ -1133,11 +1148,7 @@ const InboundEntryView: React.FC = () => {
                 disabled={loading}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all"
               >
-                {loading ? '处理中...' : `确认入库 (${
-                  mode === 'inventory' 
-                    ? selectedItems.reduce((sum, item) => sum + item.quantity, 0)
-                    : categoryBasedItems.reduce((sum, item) => sum + item.quantity, 0)
-                } 个物品)`}
+                {loading ? '处理中...' : '确认入库'}
               </button>
             </div>
           </form>
