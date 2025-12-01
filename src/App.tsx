@@ -4,6 +4,7 @@ import { InventoryTable } from './components/InventoryTable';
 import { CategoryManager } from './components/CategoryManager';
 import { OutboundPage } from './components/OutboundPage';
 import { WarehouseManager } from './components/WarehouseManager';
+import { TransactionHistoryPage } from './components/TransactionHistoryPage';
 import { MFAPage } from './components/MFAPage';
 import { WarehouseProvider } from './contexts/WarehouseContext';
 
@@ -22,6 +23,7 @@ function App() {
                   <Route path="/outbound" element={<OutboundPage />} />
                   <Route path="/categories" element={<CategoryManager />} />
                   <Route path="/warehouses" element={<WarehouseManager />} />
+                  <Route path="/transactions" element={<TransactionHistoryPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>

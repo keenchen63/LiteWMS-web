@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Settings, Menu, X, Package, Warehouse, Building2 } from 'lucide-react';
+import { LayoutDashboard, LogOut, Settings, Menu, X, Package, Warehouse, Building2, History } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 
 interface LayoutProps {
@@ -16,6 +16,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/', label: '库存查询', icon: <LayoutDashboard size={20} /> },
     { path: '/outbound', label: '出库管理', icon: <LogOut size={20} /> },
     { path: '/categories', label: '库存管理', icon: <Settings size={20} /> },
+    { path: '/transactions', label: '操作记录', icon: <History size={20} /> },
     { path: '/warehouses', label: '仓库管理', icon: <Building2 size={20} /> },
   ];
 

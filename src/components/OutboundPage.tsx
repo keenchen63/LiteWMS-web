@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { itemsApi, transactionsApi } from '../services/api';
-import { Search, ShoppingCart, User, Calendar, ClipboardList, X, FileText } from 'lucide-react';
+import { Search, ShoppingCart, User, Calendar, X, FileText, Building2 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
-import type { InventoryItemWithCategory, Transaction } from '../types';
+import type { InventoryItemWithCategory } from '../types';
 
 export const OutboundPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'entry' | 'history'>('entry');
   const { activeWarehouseName } = useWarehouse();
 
   return (
@@ -14,30 +13,16 @@ export const OutboundPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">出库管理</h2>
-          <div className="flex items-center gap-2 mt-1">
-             <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded border border-blue-200">
-                {activeWarehouseName}
-            </span>
-            <p className="text-slate-500 text-sm">处理线材领用与历史记录查询</p>
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold rounded-lg shadow-md shadow-blue-200 border border-blue-800">
+              <Building2 size={16} />
+              <span>{activeWarehouseName}</span>
+            </div>
           </div>
-        </div>
-        <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
-          <button 
-            onClick={() => setActiveTab('entry')}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'entry' ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            出库录入
-          </button>
-          <button 
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeTab === 'history' ? 'bg-blue-50 text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            出库查询
-          </button>
         </div>
       </div>
 
-      {activeTab === 'entry' ? <OutboundForm /> : <OutboundHistory />}
+      <OutboundForm />
     </div>
   );
 };
@@ -48,7 +33,7 @@ interface SelectedOutboundItem {
 }
 
 const OutboundForm: React.FC = () => {
-  const { activeWarehouseId, activeWarehouseName } = useWarehouse();
+  const { activeWarehouseId } = useWarehouse();
   const [step, setStep] = useState<1|2>(1);
   const [selectedItems, setSelectedItems] = useState<SelectedOutboundItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -198,27 +183,62 @@ const OutboundForm: React.FC = () => {
     }
 
     try {
-      // 批量处理所有出库记录
-      const promises = selectedItems.map(async (selected) => {
-        // 1. Update Inventory
+      const outboundItems: Array<{
+        category_name: string;
+        specs: Record<string, string>;
+        quantity: number;
+        item_id: number;
+      }> = [];
+      const outboundDate = new Date(formData.date).toISOString();
+
+      // 第一步：处理所有物品的库存更新
+      for (const selected of selectedItems) {
+        // Update Inventory
         await itemsApi.update(selected.item.id!, {
           quantity: selected.item.quantity - selected.quantity
         });
 
-        // 2. Add Transaction Record
+        // 收集物品信息用于合并记录
+        outboundItems.push({
+          category_name: selected.item.category_name,
+          specs: selected.item.specs,
+          quantity: selected.quantity,
+          item_id: selected.item.id!
+        });
+      }
+
+      // 第二步：创建合并的交易记录
+      if (outboundItems.length > 0) {
+        // 计算总数量
+        const totalQuantity = outboundItems.reduce((sum, item) => sum + item.quantity, 0);
+        
+        // 构建包含所有物品信息的JSON字符串
+        const itemsData = outboundItems.map(item => ({
+          category_name: item.category_name,
+          specs: item.specs,
+          quantity: item.quantity
+        }));
+        const itemNameSnapshot = JSON.stringify({
+          type: 'MULTI_ITEM_OUTBOUND',
+          items: itemsData,
+          total_quantity: totalQuantity
+        });
+
+        // 使用第一个物品的ID作为主item_id
+        const primaryItemId = outboundItems[0].item_id;
+
+        // 创建合并的交易记录
         await transactionsApi.create({
           warehouse_id: activeWarehouseId,
-          item_id: selected.item.id!,
-          item_name_snapshot: `${selected.item.category_name} - ${JSON.stringify(selected.item.specs)}`,
-          quantity: -selected.quantity,
-          date: new Date(formData.date).toISOString(),
+          item_id: primaryItemId,
+          item_name_snapshot: itemNameSnapshot,
+          quantity: -totalQuantity,
+          date: outboundDate,
           user: formData.user,
           notes: formData.notes,
           type: 'OUT'
         });
-      });
-
-      await Promise.all(promises);
+      }
 
       // Reset
       setStep(1);
@@ -273,14 +293,6 @@ const OutboundForm: React.FC = () => {
       {step === 1 ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="space-y-4">
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">当前仓库</label>
-              <div className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                {activeWarehouseName}
-              </div>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">选择出库物品</label>
               <div className="relative mb-2">
@@ -352,7 +364,8 @@ const OutboundForm: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div>
+            <div className="h-[28px]"></div>
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-bold text-slate-800">已选择物品 ({selectedItems.length})</h4>
@@ -551,109 +564,4 @@ const OutboundForm: React.FC = () => {
   );
 };
 
-const OutboundHistory: React.FC = () => {
-  const [filterDate, setFilterDate] = useState('');
-  const { activeWarehouseId } = useWarehouse();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      setLoading(true);
-      try {
-        const data = await transactionsApi.getAll(
-          activeWarehouseId,
-          'OUT',
-          filterDate || undefined
-        );
-        setTransactions(data);
-      } catch (error) {
-        console.error('Failed to fetch transactions:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTransactions();
-  }, [filterDate, activeWarehouseId]);
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="text-center text-slate-500 py-8">加载中...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-          <ClipboardList size={20} className="text-blue-500" /> 出库记录
-        </h3>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">按日期筛选:</span>
-          <input 
-            type="date" 
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-500"
-          />
-          {filterDate && (
-             <button onClick={() => setFilterDate('')} className="text-xs text-blue-600 hover:underline">清除</button>
-          )}
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-slate-50 text-slate-600 font-medium">
-            <tr>
-              <th className="px-4 py-3">日期</th>
-              <th className="px-4 py-3">物品详情</th>
-              <th className="px-4 py-3 text-center">数量</th>
-              <th className="px-4 py-3">领用人</th>
-              <th className="px-4 py-3">备注</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {transactions.map(t => {
-                let details = t.item_name_snapshot;
-                try {
-                    const [cat, specs] = details.split(' - ');
-                    const specObj = JSON.parse(specs);
-                    details = `${cat} (${Object.values(specObj).join(', ')})`;
-                } catch(e) {}
-
-                return (
-                <tr key={t.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {new Date(t.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
-                    {details}
-                  </td>
-                  <td className="px-4 py-3 text-center font-bold text-red-600">
-                    {t.quantity}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {t.user}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 max-w-xs truncate">
-                    {t.notes}
-                  </td>
-                </tr>
-            )})}
-            {transactions.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-8 text-center text-gray-400">
-                  无相关记录
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
 

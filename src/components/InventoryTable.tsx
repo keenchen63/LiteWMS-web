@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { itemsApi, categoriesApi } from '../services/api';
-import { Archive, ArrowUpDown, X } from 'lucide-react';
+import { Archive, ArrowUpDown, X, Building2 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import type { InventoryItemWithCategory, Category } from '../types';
 
@@ -148,17 +148,17 @@ export const InventoryTable: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-slate-900">库存查询</h2>
-            <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded-full border border-blue-200">
-                {activeWarehouseName}
-            </span>
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">库存查询</h2>
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold rounded-lg shadow-md shadow-blue-200 border border-blue-800">
+              <Building2 size={16} />
+              <span>{activeWarehouseName}</span>
+            </div>
+          </div>
         </div>
-        <p className="text-slate-500 text-sm">
-          查看所有线材的实时库存数量。
-        </p>
       </div>
 
       {/* Filter Section */}
@@ -249,25 +249,25 @@ export const InventoryTable: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-slate-50 text-slate-600 font-medium border-b border-gray-200">
+            <thead className="bg-slate-50 text-slate-600 font-medium">
               <tr>
-                <th className="px-6 py-4 whitespace-nowrap w-24">序号</th>
-                <th className="px-6 py-4 whitespace-nowrap w-48">
-                  <div className="flex items-center gap-1">
+                <th className="px-4 py-3 whitespace-nowrap w-24 text-center border-r border-gray-100">序号</th>
+                <th className="px-4 py-3 whitespace-nowrap w-48 text-center border-r border-gray-100">
+                  <div className="flex items-center justify-center gap-1">
                     品类 <ArrowUpDown size={14} className="text-gray-400" />
                   </div>
                 </th>
-                <th className="px-6 py-4 whitespace-nowrap min-w-[300px]">规格详情</th>
-                <th className="px-6 py-4 whitespace-nowrap w-32 text-center">当前库存</th>
-                <th className="px-6 py-4 whitespace-nowrap w-40 text-right">最后更新</th>
+                <th className="px-4 py-3 whitespace-nowrap min-w-[300px] text-center border-r border-gray-100">规格详情</th>
+                <th className="px-4 py-3 whitespace-nowrap w-32 text-center border-r border-gray-100">当前库存</th>
+                <th className="px-4 py-3 whitespace-nowrap w-40 text-center">最后更新</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {processedData.map((item, index) => (
                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 text-slate-500 font-mono">{index + 1}</td>
-                  <td className="px-6 py-4 font-semibold text-slate-800">{item.category_name}</td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3 text-slate-500 font-mono text-center border-r border-gray-100">{index + 1}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-800 text-center border-r border-gray-100">{item.category_name}</td>
+                  <td className="px-4 py-3 border-r border-gray-100">
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(item.specs).map(([key, val]) => (
                         <span key={key} className={`
@@ -281,7 +281,7 @@ export const InventoryTable: React.FC = () => {
                       ))}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-4 py-3 text-center border-r border-gray-100">
                     <span className={`
                       inline-block px-3 py-1 rounded-full font-bold text-xs
                       ${item.quantity > 10 ? 'bg-green-100 text-green-700' : 
@@ -290,14 +290,14 @@ export const InventoryTable: React.FC = () => {
                       {item.quantity}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-slate-500">
+                  <td className="px-4 py-3 text-center text-slate-500">
                     {new Date(item.updated_at).toLocaleDateString()}
                   </td>
                 </tr>
               ))}
               {processedData.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-400">
+                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400">
                     <Archive className="mx-auto mb-2 opacity-20" size={40} />
                     <p>当前仓库 ({activeWarehouseName}) 没有找到相关库存</p>
                     {(searchQuery || selectedCategoryName || Object.keys(specFilters).length > 0) && (

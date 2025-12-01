@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { categoriesApi, itemsApi, transactionsApi } from '../services/api';
 import { 
   Plus, Trash2, Edit2, X, Check, Settings, Boxes, PackagePlus, 
-  Save, List, History, Calendar, Search, ShoppingCart, User, FileText, RotateCcw,
-  Package, Layers
+  Save, List, Calendar, Search, ShoppingCart, User, FileText, RotateCcw,
+  Package, Layers, Building2
 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
 import { MFADialog } from './MFADialog';
 import { useMFA } from '../hooks/useMFA';
-import type { Category, AttributeDefinition, InventoryItemWithCategory, Transaction } from '../types';
+import type { Category, AttributeDefinition, InventoryItemWithCategory } from '../types';
 
 export const CategoryManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'inbound' | 'categories'>('inbound');
@@ -20,13 +20,11 @@ export const CategoryManager: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">库存管理</h2>
-          <div className="flex items-center gap-2 mt-1">
-             <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-bold rounded border border-blue-200">
-                {activeWarehouseName}
-            </span>
-            <p className="text-slate-500 text-sm">
-                {activeTab === 'inbound' ? '录入新线材及记录查询' : '定义线材的类型及其属性'}
-            </p>
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold rounded-lg shadow-md shadow-blue-200 border border-blue-800">
+              <Building2 size={16} />
+              <span>{activeWarehouseName}</span>
+            </div>
           </div>
         </div>
         
@@ -60,7 +58,7 @@ export const CategoryManager: React.FC = () => {
 };
 
 const InboundPanel: React.FC = () => {
-  const [subTab, setSubTab] = useState<'entry' | 'edit' | 'history'>('entry');
+  const [subTab, setSubTab] = useState<'entry' | 'edit'>('entry');
 
   return (
     <div className="space-y-6">
@@ -85,19 +83,9 @@ const InboundPanel: React.FC = () => {
         >
           库存调整
         </button>
-        <button
-          onClick={() => setSubTab('history')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            subTab === 'history' 
-              ? 'border-blue-500 text-blue-600' 
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          历史记录
-        </button>
       </div>
 
-      {subTab === 'entry' ? <InboundEntryView /> : subTab === 'edit' ? <InventoryEditView /> : <InboundHistoryView />}
+      {subTab === 'entry' ? <InboundEntryView /> : <InventoryEditView />}
     </div>
   );
 };
@@ -114,7 +102,7 @@ interface CategoryBasedItem {
 }
 
 const InboundEntryView: React.FC = () => {
-  const { activeWarehouseId, activeWarehouseName } = useWarehouse();
+  const { activeWarehouseId } = useWarehouse();
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [step, setStep] = useState<1|2>(1);
   const [mode, setMode] = useState<'inventory' | 'category'>('inventory'); // 两种模式：从库存选择 / 按品类添加
@@ -337,31 +325,33 @@ const InboundEntryView: React.FC = () => {
     setLoading(true);
 
     try {
+      const inboundItems: Array<{
+        category_name: string;
+        specs: Record<string, string>;
+        quantity: number;
+        item_id: number;
+      }> = [];
+      const inboundDate = new Date(formData.date).toISOString();
+
       if (mode === 'inventory') {
         // 从库存选择模式：更新现有物品
-        const promises = selectedItems.map(async (selected) => {
+        for (const selected of selectedItems) {
           // Update item quantity (add to existing)
           await itemsApi.update(selected.item.id!, {
             quantity: selected.item.quantity + selected.quantity
           });
 
-          // Add transaction record
-          await transactionsApi.create({
-            warehouse_id: activeWarehouseId,
-            item_id: selected.item.id!,
-            item_name_snapshot: `${selected.item.category_name} - ${JSON.stringify(selected.item.specs)}`,
+          // 收集物品信息用于合并记录
+          inboundItems.push({
+            category_name: selected.item.category_name,
+            specs: selected.item.specs,
             quantity: selected.quantity,
-            date: new Date(formData.date).toISOString(),
-            user: formData.user,
-            notes: formData.notes,
-            type: 'IN'
+            item_id: selected.item.id!
           });
-        });
-
-        await Promise.all(promises);
+        }
       } else {
         // 按品类添加模式：创建新物品或更新现有物品
-        const promises = categoryBasedItems.map(async (categoryItem) => {
+        for (const categoryItem of categoryBasedItems) {
           // 检查该规格的物品是否已存在
           const existingItems = await itemsApi.getAll(activeWarehouseId, categoryItem.category.id);
           const existingItem = existingItems.find(item => 
@@ -386,20 +376,47 @@ const InboundEntryView: React.FC = () => {
             itemId = newItem.id!;
           }
 
-          // Add transaction record
-          await transactionsApi.create({
-            warehouse_id: activeWarehouseId,
-            item_id: itemId,
-            item_name_snapshot: `${categoryItem.category.name} - ${Object.values(categoryItem.specs).join(' ')}`,
+          // 收集物品信息用于合并记录
+          inboundItems.push({
+            category_name: categoryItem.category.name,
+            specs: categoryItem.specs,
             quantity: categoryItem.quantity,
-            date: new Date(formData.date).toISOString(),
-            user: formData.user,
-            notes: formData.notes,
-            type: 'IN'
+            item_id: itemId
           });
+        }
+      }
+
+      // 创建合并的交易记录
+      if (inboundItems.length > 0) {
+        // 计算总数量
+        const totalQuantity = inboundItems.reduce((sum, item) => sum + item.quantity, 0);
+        
+        // 构建包含所有物品信息的JSON字符串
+        const itemsData = inboundItems.map(item => ({
+          category_name: item.category_name,
+          specs: item.specs,
+          quantity: item.quantity
+        }));
+        const itemNameSnapshot = JSON.stringify({
+          type: 'MULTI_ITEM_INBOUND',
+          items: itemsData,
+          total_quantity: totalQuantity
         });
 
-        await Promise.all(promises);
+        // 使用第一个物品的ID作为主item_id
+        const primaryItemId = inboundItems[0].item_id;
+
+        // 创建合并的交易记录
+        await transactionsApi.create({
+          warehouse_id: activeWarehouseId,
+          item_id: primaryItemId,
+          item_name_snapshot: itemNameSnapshot,
+          quantity: totalQuantity,
+          date: inboundDate,
+          user: formData.user,
+          notes: formData.notes,
+          type: 'IN'
+        });
       }
 
       // Reset
@@ -502,14 +519,6 @@ const InboundEntryView: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* 左侧：物品选择区域 */}
             <div className="space-y-4">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">当前仓库</label>
-                <div className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  {activeWarehouseName}
-                </div>
-              </div>
-
               {mode === 'inventory' ? (
                 /* 从库存选择模式 */
                 <div>
@@ -666,7 +675,8 @@ const InboundEntryView: React.FC = () => {
             </div>
 
             {/* 右侧：已选择物品列表和下一步按钮 */}
-            <div className="space-y-4">
+            <div>
+              <div className="h-[28px]"></div>
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-bold text-slate-800">
@@ -1116,8 +1126,14 @@ const InventoryEditView: React.FC = () => {
 
     try {
       const promises: Promise<any>[] = [];
+      const adjustItems: Array<{
+        category_name: string;
+        specs: Record<string, string>;
+        quantity_diff: number;
+        item_id: number;
+      }> = [];
 
-      // 处理数量调整
+      // 第一步：处理数量调整和收集物品信息
       Object.entries(itemEdits).forEach(([itemIdStr, editState]) => {
         const itemId = Number(itemIdStr);
         const item = allItems.find(i => i.id === itemId);
@@ -1127,22 +1143,20 @@ const InventoryEditView: React.FC = () => {
         const diff = editState.quantity - editState.originalQuantity;
         if (diff === 0) return;
 
+        // 更新库存
         promises.push(
           itemsApi.update(itemId, {
             quantity: editState.quantity
-          }).then(() => {
-            return transactionsApi.create({
-              item_id: itemId,
-              warehouse_id: activeWarehouseId,
-              item_name_snapshot: `${item.category_name || 'Unknown'} - ${JSON.stringify(item.specs)}`,
-              quantity: diff,
-              date: new Date().toISOString(),
-              user: confirmFormData.user,
-              notes: confirmFormData.notes,
-              type: 'ADJUST'
-            });
           })
         );
+
+        // 收集物品信息用于合并记录
+        adjustItems.push({
+          category_name: item.category_name || 'Unknown',
+          specs: item.specs,
+          quantity_diff: diff,
+          item_id: itemId
+        });
       });
 
       // 处理删除
@@ -1153,7 +1167,41 @@ const InventoryEditView: React.FC = () => {
         }
       });
 
+      // 等待所有库存更新完成
       await Promise.all(promises);
+
+      // 第二步：如果有调整的物品，创建合并的交易记录
+      if (adjustItems.length > 0) {
+        // 计算总数量变动（用于显示）
+        const totalQuantityDiff = adjustItems.reduce((sum, item) => sum + item.quantity_diff, 0);
+        
+        // 构建包含所有物品信息的JSON字符串
+        const itemsData = adjustItems.map(item => ({
+          category_name: item.category_name,
+          specs: item.specs,
+          quantity_diff: item.quantity_diff
+        }));
+        const itemNameSnapshot = JSON.stringify({
+          type: 'MULTI_ITEM_ADJUST',
+          items: itemsData,
+          total_quantity_diff: totalQuantityDiff
+        });
+
+        // 使用第一个物品的ID作为主item_id
+        const primaryItemId = adjustItems[0].item_id;
+
+        // 创建合并的交易记录
+        await transactionsApi.create({
+          item_id: primaryItemId,
+          warehouse_id: activeWarehouseId,
+          item_name_snapshot: itemNameSnapshot,
+          quantity: totalQuantityDiff,
+          date: new Date().toISOString(),
+          user: confirmFormData.user,
+          notes: confirmFormData.notes,
+          type: 'ADJUST'
+        });
+      }
 
       // Refresh items
       const data = await itemsApi.getWithCategory(activeWarehouseId);
@@ -1467,151 +1515,6 @@ const InventoryEditView: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
-  );
-};
-
-const InboundHistoryView: React.FC = () => {
-  const [filterDate, setFilterDate] = useState('');
-  const { activeWarehouseId } = useWarehouse();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      setLoading(true);
-      try {
-        const data = await transactionsApi.getAll(activeWarehouseId);
-        // Filter by type and date
-        let filtered = data.filter(t => {
-          if (t.type === 'IN' && t.warehouse_id === activeWarehouseId) return true;
-          if (t.type === 'ADJUST' && t.warehouse_id === activeWarehouseId) return true;
-          if (t.type === 'TRANSFER' && t.warehouse_id === activeWarehouseId) return true; 
-          if (t.type === 'TRANSFER' && t.related_warehouse_id === activeWarehouseId) return true;
-          return false;
-        });
-        
-        if (filterDate) {
-          const filterDt = new Date(filterDate);
-          filtered = filtered.filter(t => {
-            const tDate = new Date(t.date);
-            return tDate.toDateString() === filterDt.toDateString();
-          });
-        }
-        
-        filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setTransactions(filtered);
-      } catch (error) {
-        console.error('Failed to fetch transactions:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTransactions();
-  }, [filterDate, activeWarehouseId]);
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="text-center text-slate-500 py-8">加载中...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-in fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-          <History size={20} className="text-blue-500" /> 操作记录 (History)
-        </h3>
-        <div className="flex items-center gap-2">
-          <Calendar size={16} className="text-gray-400" />
-          <span className="text-sm text-gray-500">日期筛选:</span>
-          <input 
-            type="date" 
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-500"
-          />
-          {filterDate && (
-             <button onClick={() => setFilterDate('')} className="text-xs text-blue-600 hover:underline">清除</button>
-          )}
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-slate-50 text-slate-600 font-medium">
-            <tr>
-              <th className="px-4 py-3">日期</th>
-              <th className="px-4 py-3">类型</th>
-              <th className="px-4 py-3">物品详情</th>
-              <th className="px-4 py-3 text-center">数量变动</th>
-              <th className="px-4 py-3">操作人</th>
-              <th className="px-4 py-3">备注</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {transactions.map(t => {
-                let details = t.item_name_snapshot;
-                try {
-                    const [cat, specs] = details.split(' - ');
-                    const specObj = JSON.parse(specs);
-                    details = `${cat} (${Object.values(specObj).join(', ')})`;
-                } catch(e) {}
-
-                const isTransferIn = t.type === 'TRANSFER' && t.related_warehouse_id === activeWarehouseId;
-                const isTransferOut = t.type === 'TRANSFER' && t.warehouse_id === activeWarehouseId;
-                
-                let typeBadge = <span className="text-gray-500">Unknown</span>;
-                let qtyDisplay = <span className="">{t.quantity}</span>;
-
-                if (t.type === 'IN') {
-                    typeBadge = <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold">入库</span>;
-                    qtyDisplay = <span className="text-green-600 font-bold">+{t.quantity}</span>;
-                } else if (t.type === 'ADJUST') {
-                    typeBadge = <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded text-xs font-bold">调整</span>;
-                    qtyDisplay = <span className={t.quantity > 0 ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{t.quantity > 0 ? '+' : ''}{t.quantity}</span>;
-                } else if (isTransferOut) {
-                    typeBadge = <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-bold">调拨出</span>;
-                    qtyDisplay = <span className="text-red-600 font-bold">{t.quantity}</span>; 
-                } else if (isTransferIn) {
-                    typeBadge = <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">调拨入</span>;
-                    qtyDisplay = <span className="text-green-600 font-bold">+{Math.abs(t.quantity)}</span>;
-                }
-
-                return (
-                <tr key={t.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {new Date(t.date).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    {typeBadge}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
-                    {details}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {qtyDisplay}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {t.user}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 max-w-xs truncate">
-                    {t.notes}
-                  </td>
-                </tr>
-            )})}
-            {transactions.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-gray-400">
-                  无相关记录
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </div>
     </div>
   );

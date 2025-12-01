@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { warehousesApi, itemsApi, transactionsApi } from '../services/api';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { 
-  Building2, Plus, Edit2, Trash2, ArrowLeftRight, Check, X, Search, MapPin, Calendar, User, FileText
+  Building2, Plus, Edit2, Trash2, ArrowLeftRight, Check, X, Search, MapPin, Calendar, User, FileText, ClipboardList
 } from 'lucide-react';
 import { Dialog, DialogType } from './Dialog';
 import { MFADialog } from './MFADialog';
 import { useMFA } from '../hooks/useMFA';
-import type { Warehouse, InventoryItemWithCategory } from '../types';
+import type { Warehouse, InventoryItemWithCategory, Transaction } from '../types';
 
 interface SelectedTransferItem {
   item: InventoryItemWithCategory;
@@ -22,7 +22,6 @@ export const WarehouseManager: React.FC = () => {
        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">仓库管理</h2>
-          <p className="text-slate-500 text-sm mt-1">管理物理仓库位置及库存调拨</p>
         </div>
         <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
           <button 
@@ -349,6 +348,39 @@ const WarehouseSettings: React.FC = () => {
 };
 
 const TransferView: React.FC = () => {
+    const [transferTab, setTransferTab] = useState<'entry' | 'history'>('entry');
+    
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex w-fit">
+          <button 
+            onClick={() => setTransferTab('entry')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2
+              ${transferTab === 'entry' 
+                ? 'bg-blue-50 text-blue-700 shadow-sm' 
+                : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <ArrowLeftRight size={16} />
+            调拨录入
+          </button>
+          <button 
+            onClick={() => setTransferTab('history')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2
+              ${transferTab === 'history' 
+                ? 'bg-blue-50 text-blue-700 shadow-sm' 
+                : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <ClipboardList size={16} />
+            调拨记录
+          </button>
+        </div>
+
+        {transferTab === 'entry' ? <TransferForm /> : <TransferHistory />}
+      </div>
+    );
+};
+
+const TransferForm: React.FC = () => {
     const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
     const { activeWarehouseId, activeWarehouseName, warehouses } = useWarehouse();
     const [step, setStep] = useState<1|2>(1);
@@ -553,9 +585,18 @@ const TransferView: React.FC = () => {
       try {
         const targetWhId = Number(targetWarehouseId);
         const targetWarehouseName = warehouses.find(w => w.id === targetWhId)?.name || '';
+        const transferDate = new Date(formData.date).toISOString();
 
-        // 批量处理所有调拨记录
-        const promises = selectedItems.map(async (selected) => {
+        // 第一步：处理所有物品的库存更新（源仓库扣减，目标仓库增加）
+        const transferItems: Array<{
+          category_name: string;
+          specs: Record<string, string>;
+          quantity: number;
+          source_item_id: number;
+          target_item_id: number;
+        }> = [];
+
+        for (const selected of selectedItems) {
           // 1. Deduct from Source
           await itemsApi.update(selected.item.id!, {
             quantity: selected.item.quantity - selected.quantity
@@ -571,34 +612,80 @@ const TransferView: React.FC = () => {
             return keysA.every(key => item.specs[key] === selected.item.specs[key]);
           });
 
+          let targetItemId: number;
           if (existingTargetItem) {
             await itemsApi.update(existingTargetItem.id!, {
               quantity: existingTargetItem.quantity + selected.quantity
             });
+            targetItemId = existingTargetItem.id!;
           } else {
-            await itemsApi.create({
+            // Create new item in target warehouse and get the returned ID
+            const newTargetItem = await itemsApi.create({
               warehouse_id: targetWhId,
               category_id: selected.item.category_id,
               specs: selected.item.specs,
               quantity: selected.quantity
             });
+            if (!newTargetItem.id) {
+              throw new Error('Failed to create target item');
+            }
+            targetItemId = newTargetItem.id;
           }
 
-          // 3. Log Transaction
-          await transactionsApi.create({
-            item_id: selected.item.id!,
-            warehouse_id: activeWarehouseId,
-            related_warehouse_id: targetWhId,
-            item_name_snapshot: `${selected.item.category_name} - ${JSON.stringify(selected.item.specs)}`,
-            quantity: -selected.quantity,
-            date: new Date(formData.date).toISOString(),
-            user: formData.user,
-            notes: formData.notes,
-            type: 'TRANSFER'
+          // 收集物品信息用于合并记录
+          transferItems.push({
+            category_name: selected.item.category_name,
+            specs: selected.item.specs,
+            quantity: selected.quantity,
+            source_item_id: selected.item.id!,
+            target_item_id: targetItemId
           });
+        }
+
+        // 第二步：创建合并的交易记录（一条记录包含所有物品）
+        // 计算总数量（用于显示）
+        const totalQuantity = transferItems.reduce((sum, item) => sum + item.quantity, 0);
+        
+        // 构建包含所有物品信息的JSON字符串
+        const itemsData = transferItems.map(item => ({
+          category_name: item.category_name,
+          specs: item.specs,
+          quantity: item.quantity
+        }));
+        const itemNameSnapshot = JSON.stringify({
+          type: 'MULTI_ITEM_TRANSFER',
+          items: itemsData,
+          total_quantity: totalQuantity
         });
 
-        await Promise.all(promises);
+        // 使用第一个物品的ID作为主item_id
+        const primaryItemId = transferItems[0].source_item_id;
+
+        // 3a. Source warehouse transaction (outbound, negative total quantity)
+        await transactionsApi.create({
+          item_id: primaryItemId,
+          warehouse_id: activeWarehouseId,
+          related_warehouse_id: targetWhId,
+          item_name_snapshot: itemNameSnapshot,
+          quantity: -totalQuantity,
+          date: transferDate,
+          user: formData.user,
+          notes: formData.notes,
+          type: 'TRANSFER'
+        });
+
+        // 3b. Target warehouse transaction (inbound, positive total quantity)
+        await transactionsApi.create({
+          item_id: transferItems[0].target_item_id,
+          warehouse_id: targetWhId,
+          related_warehouse_id: activeWarehouseId,
+          item_name_snapshot: itemNameSnapshot,
+          quantity: totalQuantity,
+          date: transferDate,
+          user: formData.user,
+          notes: formData.notes,
+          type: 'TRANSFER'
+        });
 
         // Reset
         setStep(1);
@@ -919,5 +1006,240 @@ const TransferView: React.FC = () => {
         )}
       </div>
     );
-  };
+};
+
+interface MergedTransferRecord {
+  date: string;
+  item_name_snapshot: string;
+  quantity: number;
+  source_warehouse_id: number;
+  target_warehouse_id: number;
+  user: string;
+  notes: string;
+}
+
+const TransferHistory: React.FC = () => {
+  const { activeWarehouseId, warehouses } = useWarehouse();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [mergedRecords, setMergedRecords] = useState<MergedTransferRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterDate, setFilterDate] = useState('');
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      setLoading(true);
+      try {
+        const data = await transactionsApi.getAll(
+          activeWarehouseId,
+          'TRANSFER',
+          filterDate || undefined
+        );
+        setTransactions(data);
+        
+        // 处理调拨记录：根据当前仓库视角显示调出或调入
+        // 根据调拨创建逻辑：
+        // - 调拨出：warehouse_id = 源仓库，quantity < 0，related_warehouse_id = 目标仓库
+        // - 调拨入：warehouse_id = 目标仓库，quantity > 0，related_warehouse_id = 源仓库
+        // 
+        // 当查询某个仓库的调拨记录时，API 会返回：
+        // 1. warehouse_id === activeWarehouseId 的记录（该仓库作为主仓库的记录）
+        // 2. related_warehouse_id === activeWarehouseId 的记录（该仓库作为相关仓库的记录）
+        //
+        // 对于仓库 A 调拨到仓库 B：
+        // - 仓库 A 会收到：warehouse_id = A, quantity < 0（调拨出）和 related_warehouse_id = A, quantity > 0（不存在，因为调拨入的 warehouse_id = B）
+        // - 仓库 B 会收到：warehouse_id = B, quantity > 0（调拨入）和 related_warehouse_id = B, quantity < 0（调拨出，但 warehouse_id = A）
+        //
+        // 所以正确的逻辑是：
+        // - 如果 warehouse_id === activeWarehouseId 且 quantity < 0：调拨出
+        // - 如果 warehouse_id === activeWarehouseId 且 quantity > 0：调拨入
+        // - 如果 related_warehouse_id === activeWarehouseId 且 quantity < 0：这是其他仓库的调拨出，不应该在当前仓库显示
+        // - 如果 related_warehouse_id === activeWarehouseId 且 quantity > 0：这是其他仓库的调拨入，不应该在当前仓库显示
+        const merged: MergedTransferRecord[] = [];
+        const processed = new Set<number>();
+        
+        data.forEach((t) => {
+          if (processed.has(t.id!)) return;
+          
+          // 只处理 warehouse_id === activeWarehouseId 的记录
+          // 这样确保每个仓库只看到自己作为主仓库的记录
+          if (t.warehouse_id === activeWarehouseId) {
+            if (t.quantity < 0) {
+              // 调拨出：当前仓库调出到其他仓库
+              merged.push({
+                date: t.date,
+                item_name_snapshot: t.item_name_snapshot,
+                quantity: Math.abs(t.quantity),
+                source_warehouse_id: t.warehouse_id,
+                target_warehouse_id: t.related_warehouse_id || 0,
+                user: t.user,
+                notes: t.notes
+              });
+              processed.add(t.id!);
+            } else if (t.quantity > 0 && t.related_warehouse_id) {
+              // 调拨入：从其他仓库调入到当前仓库
+              merged.push({
+                date: t.date,
+                item_name_snapshot: t.item_name_snapshot,
+                quantity: t.quantity,
+                source_warehouse_id: t.related_warehouse_id,
+                target_warehouse_id: t.warehouse_id,
+                user: t.user,
+                notes: t.notes
+              });
+              processed.add(t.id!);
+            }
+          }
+          // 忽略 related_warehouse_id === activeWarehouseId 的记录
+          // 因为这些记录属于其他仓库，不应该在当前仓库显示
+        });
+        
+        // 按日期倒序排序
+        merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setMergedRecords(merged);
+      } catch (error) {
+        console.error('Failed to fetch transfer transactions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTransactions();
+  }, [filterDate, activeWarehouseId]);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="text-center text-slate-500 py-8">加载中...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+          <ClipboardList size={20} className="text-blue-500" /> 调拨记录
+        </h3>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-500">按日期筛选:</span>
+          <input 
+            type="date" 
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-500"
+          />
+          {filterDate && (
+             <button onClick={() => setFilterDate('')} className="text-xs text-blue-600 hover:underline">清除</button>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-slate-50 text-slate-600 font-medium">
+            <tr>
+              <th className="px-4 py-3">日期</th>
+              <th className="px-4 py-3">物品详情及数量</th>
+              <th className="px-4 py-3">来源仓库</th>
+              <th className="px-4 py-3">目的仓库</th>
+              <th className="px-4 py-3">操作人</th>
+              <th className="px-4 py-3">备注</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {mergedRecords.map((record, index) => {
+              // 解析物品信息（支持新格式：JSON多物品，和旧格式：单物品字符串）
+              let items: Array<{ category_name: string; specs: Record<string, string>; quantity: number }> = [];
+              let totalQuantity = record.quantity;
+              
+              try {
+                // 尝试解析为新格式（JSON多物品）
+                const parsed = JSON.parse(record.item_name_snapshot);
+                if (parsed.type === 'MULTI_ITEM_TRANSFER' && Array.isArray(parsed.items)) {
+                  items = parsed.items;
+                  totalQuantity = parsed.total_quantity || record.quantity;
+                } else {
+                  throw new Error('Not multi-item format');
+                }
+              } catch (e) {
+                // 旧格式：单物品字符串 "品类名 - {...specs...}"
+                try {
+                  const [cat, specsStr] = record.item_name_snapshot.split(' - ');
+                  const specs = JSON.parse(specsStr);
+                  items = [{
+                    category_name: cat,
+                    specs: specs,
+                    quantity: record.quantity
+                  }];
+                  totalQuantity = record.quantity;
+                } catch (e2) {
+                  // 如果解析失败，使用原始字符串
+                  items = [{
+                    category_name: record.item_name_snapshot,
+                    specs: {},
+                    quantity: record.quantity
+                  }];
+                  totalQuantity = record.quantity;
+                }
+              }
+
+              const sourceWarehouse = warehouses.find(w => w.id === record.source_warehouse_id);
+              const targetWarehouse = warehouses.find(w => w.id === record.target_warehouse_id);
+
+              return (
+                <tr key={`${record.date}-${record.source_warehouse_id}-${record.target_warehouse_id}-${index}`} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                    {new Date(record.date).toLocaleDateString('zh-CN')}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-2">
+                      {items.map((item, itemIndex) => (
+                        <div key={itemIndex} className="border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                          <div className="font-medium text-slate-800">{item.category_name}</div>
+                          {Object.keys(item.specs).length > 0 && (
+                            <div className="text-xs text-slate-500 mt-1">
+                              {Object.values(item.specs).join(' ')}
+                            </div>
+                          )}
+                          <div className="text-xs text-slate-600 mt-1">
+                            数量: <span className="font-bold text-blue-600">{item.quantity}</span>
+                          </div>
+                        </div>
+                      ))}
+                      {items.length > 1 && (
+                        <div className="pt-2 mt-2 border-t border-gray-200">
+                          <div className="text-sm font-bold text-slate-700">
+                            总计: <span className="text-blue-600">{totalQuantity}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {sourceWarehouse ? sourceWarehouse.name : `仓库 #${record.source_warehouse_id}`}
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {targetWarehouse ? targetWarehouse.name : `仓库 #${record.target_warehouse_id}`}
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {record.user}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={record.notes}>
+                    {record.notes}
+                  </td>
+                </tr>
+              );
+            })}
+            {mergedRecords.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-gray-400">
+                  无调拨记录
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
