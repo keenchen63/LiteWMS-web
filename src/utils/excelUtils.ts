@@ -167,7 +167,15 @@ export const parseInboundExcel = (file: File): Promise<InboundImportRow[]> => {
         const result: InboundImportRow[] = [];
         
         // 从第二行开始解析数据（跳过表头）
+        // 跳过最后一行说明（如果第一列包含"说明"关键词）
+        const lastRowIndex = rows.length - 1;
+        const shouldSkipLastRow = lastRowIndex >= 1 && 
+          String(rows[lastRowIndex]?.[categoryIndex] || '').trim().includes('说明');
+        
         for (let i = 1; i < rows.length; i++) {
+          // 跳过最后一行说明
+          if (shouldSkipLastRow && i === lastRowIndex) continue;
+          
           const row = rows[i];
           if (!row || row.length === 0) continue;
           
@@ -175,7 +183,8 @@ export const parseInboundExcel = (file: File): Promise<InboundImportRow[]> => {
           const quantity = Number(row[quantityIndex] || 0);
           const notes = notesIndex >= 0 ? String(row[notesIndex] || '').trim() : '';
           
-          if (!categoryName) continue; // 跳过空行
+          // 跳过空行和说明行
+          if (!categoryName || categoryName.includes('说明')) continue;
           if (isNaN(quantity) || quantity <= 0) {
             reject(new Error(`第 ${i + 1} 行：数量必须是大于 0 的数字`));
             return;
@@ -326,12 +335,21 @@ export const parseCategoryExcel = (file: File): Promise<CategoryImportRow[]> => 
         const result: CategoryImportRow[] = [];
         
         // 从第二行开始解析数据（跳过表头）
+        // 跳过最后一行说明（如果第一列包含"说明"关键词）
+        const lastRowIndex = rows.length - 1;
+        const shouldSkipLastRow = lastRowIndex >= 1 && 
+          String(rows[lastRowIndex]?.[nameIndex] || '').trim().includes('说明');
+        
         for (let i = 1; i < rows.length; i++) {
+          // 跳过最后一行说明
+          if (shouldSkipLastRow && i === lastRowIndex) continue;
+          
           const row = rows[i];
           if (!row || row.length === 0) continue;
           
           const name = String(row[nameIndex] || '').trim();
-          if (!name) continue; // 跳过空行
+          // 跳过空行和说明行
+          if (!name || name.includes('说明')) continue;
 
           const attributes: Array<{ name: string; options: string[] }> = [];
           

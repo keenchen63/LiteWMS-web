@@ -296,25 +296,98 @@ const InboundEntryView: React.FC = () => {
       // 将导入的数据转换为 categoryBasedItems 格式
       const importedItems: CategoryBasedItem[] = [];
       
-      for (const row of importedRows) {
+      const validationErrors: string[] = [];
+
+      for (let index = 0; index < importedRows.length; index++) {
+        const row = importedRows[index];
         // 查找对应的品类
         const category = categories.find(c => c.name === row.categoryName);
         if (!category) {
-          setLoading(false);
-          setDialog({
-            show: true,
-            type: 'error',
-            title: '导入失败',
-            message: `未找到品类：${row.categoryName}，请先创建该品类`
-          });
-          return;
+          validationErrors.push(`第 ${index + 1} 行：未找到品类 "${row.categoryName}"，请先创建该品类`);
+          continue;
         }
 
-        importedItems.push({
-          category,
-          specs: row.specs,
-          quantity: row.quantity
+        // 验证属性名称和属性值是否匹配品类定义
+        const categoryAttributeNames = category.attributes.map(attr => attr.name);
+        const providedAttributeNames = Object.keys(row.specs);
+        const invalidAttributes: string[] = [];
+        const invalidValues: string[] = [];
+        const missingAttributes: string[] = [];
+
+        // 检查是否缺少必需的属性（所有品类定义的属性都必须提供）
+        for (const attrName of categoryAttributeNames) {
+          if (!providedAttributeNames.includes(attrName)) {
+            missingAttributes.push(attrName);
+          }
+        }
+
+        // 检查提供的属性是否都在品类定义中，以及值是否有效
+        for (const [attrName, attrValue] of Object.entries(row.specs)) {
+          // 跳过空值
+          if (!attrValue || attrValue.trim() === '') {
+            continue;
+          }
+
+          // 检查属性名称是否在品类定义中
+          if (!categoryAttributeNames.includes(attrName)) {
+            invalidAttributes.push(attrName);
+            continue;
+          }
+
+          // 检查属性值是否在对应属性的选项中（如果有选项的话）
+          const attributeDef = category.attributes.find(attr => attr.name === attrName);
+          if (attributeDef && attributeDef.options.length > 0) {
+            // 如果属性有预定义选项，验证值是否在选项中
+            if (!attributeDef.options.includes(attrValue)) {
+              invalidValues.push(`${attrName}="${attrValue}"（可选值：${attributeDef.options.join(', ')}）`);
+            }
+          }
+          // 如果属性没有预定义选项（任意输入），则不需要验证值
+        }
+
+        // 收集所有验证错误
+        if (missingAttributes.length > 0) {
+          validationErrors.push(`第 ${index + 1} 行（品类 "${row.categoryName}"）：缺少必需的属性 "${missingAttributes.join(', ')}"`);
+        }
+        if (invalidAttributes.length > 0) {
+          validationErrors.push(`第 ${index + 1} 行（品类 "${row.categoryName}"）：属性名称 "${invalidAttributes.join(', ')}" 不在品类定义中`);
+        }
+        if (invalidValues.length > 0) {
+          validationErrors.push(`第 ${index + 1} 行（品类 "${row.categoryName}"）：属性值无效 - ${invalidValues.join('; ')}`);
+        }
+
+        // 如果验证通过，添加到导入列表
+        if (invalidAttributes.length === 0 && invalidValues.length === 0 && missingAttributes.length === 0) {
+          importedItems.push({
+            category,
+            specs: row.specs,
+            quantity: row.quantity
+          });
+        }
+      }
+
+      // 如果有验证错误，显示错误信息
+      if (validationErrors.length > 0) {
+        setLoading(false);
+        setDialog({
+          show: true,
+          type: 'error',
+          title: '导入验证失败',
+          message: `发现 ${validationErrors.length} 个验证错误`,
+          details: validationErrors.join('\n')
         });
+        return;
+      }
+
+      if (importedItems.length === 0) {
+        setLoading(false);
+        setDialog({
+          show: true,
+          type: 'error',
+          title: '导入失败',
+          message: '没有有效的数据可以导入，请检查 Excel 文件'
+        });
+        return;
       }
 
       // 切换到按品类添加模式（导入后显示在已选列表中）
