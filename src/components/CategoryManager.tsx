@@ -3,13 +3,19 @@ import { categoriesApi, itemsApi, transactionsApi } from '../services/api';
 import { 
   Plus, Trash2, Edit2, X, Check, Settings, Boxes, PackagePlus, 
   Save, List, Calendar, Search, ShoppingCart, User, FileText, RotateCcw,
-  Package, Layers, Building2
+  Package, Layers, Building2, Upload, Download
 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
 import { MFADialog } from './MFADialog';
 import { useMFA } from '../hooks/useMFA';
 import type { Category, AttributeDefinition, InventoryItemWithCategory } from '../types';
+import { 
+  generateInboundTemplate, 
+  generateCategoryTemplate, 
+  parseInboundExcel, 
+  parseCategoryExcel
+} from '../utils/excelUtils';
 
 export const CategoryManager: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'inbound' | 'categories'>('inbound');
@@ -47,7 +53,7 @@ export const CategoryManager: React.FC = () => {
                 : 'text-gray-500 hover:text-gray-700'}`}
           >
             <Boxes size={16} />
-            品类设置
+            品类管理
           </button>
         </div>
       </div>
@@ -105,7 +111,7 @@ const InboundEntryView: React.FC = () => {
   const { activeWarehouseId } = useWarehouse();
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [step, setStep] = useState<1|2>(1);
-  const [mode, setMode] = useState<'inventory' | 'category'>('inventory'); // 两种模式：从库存选择 / 按品类添加
+  const [mode, setMode] = useState<'inventory' | 'category' | 'import'>('inventory'); // 三种模式：从库存选择 / 按品类添加 / 通过表格导入
   const [selectedItems, setSelectedItems] = useState<SelectedInboundItem[]>([]);
   const [categoryBasedItems, setCategoryBasedItems] = useState<CategoryBasedItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -277,6 +283,69 @@ const InboundEntryView: React.FC = () => {
 
   const handleRemoveCategoryItem = (index: number) => {
     setCategoryBasedItems(categoryBasedItems.filter((_, i) => i !== index));
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      const importedRows = await parseInboundExcel(file);
+      
+      // 将导入的数据转换为 categoryBasedItems 格式
+      const importedItems: CategoryBasedItem[] = [];
+      
+      for (const row of importedRows) {
+        // 查找对应的品类
+        const category = categories.find(c => c.name === row.categoryName);
+        if (!category) {
+          setDialog({
+            show: true,
+            type: 'error',
+            title: '导入失败',
+            message: `未找到品类：${row.categoryName}，请先创建该品类`
+          });
+          return;
+        }
+
+        importedItems.push({
+          category,
+          specs: row.specs,
+          quantity: row.quantity
+        });
+      }
+
+      // 切换到按品类添加模式（导入后显示在已选列表中）
+      setMode('category');
+      setCategoryBasedItems(importedItems);
+      
+      // 如果导入的数据中有备注，设置到表单中
+      if (importedRows.length > 0 && importedRows[0].notes) {
+        setFormData(prev => ({
+          ...prev,
+          notes: importedRows[0].notes || ''
+        }));
+      }
+
+      setDialog({
+        show: true,
+        type: 'success',
+        title: '导入成功',
+        message: `成功导入 ${importedItems.length} 条记录，请检查数据后提交`
+      });
+    } catch (error: any) {
+      setDialog({
+        show: true,
+        type: 'error',
+        title: '导入失败',
+        message: error.message || 'Excel 文件解析失败，请检查文件格式'
+      });
+    } finally {
+      setLoading(false);
+      // 清空文件输入
+      e.target.value = '';
+    }
   };
 
   const handleBatchSubmit = async (e: React.FormEvent) => {
@@ -514,6 +583,23 @@ const InboundEntryView: React.FC = () => {
               <Layers size={16} />
               按品类添加
             </button>
+            <button
+              onClick={() => {
+                setMode('import');
+                setSelectedItems([]);
+                setCategoryBasedItems([]);
+                setSelectedCategory(null);
+                setCategorySpecs({});
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
+                mode === 'import'
+                  ? 'bg-blue-50 text-blue-700 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Upload size={16} />
+              通过表格导入
+            </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -523,73 +609,73 @@ const InboundEntryView: React.FC = () => {
                 /* 从库存选择模式 */
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">选择入库物品</label>
-              <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input 
-                  type="text"
-                  placeholder="快速搜索"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                />
-              </div>
-              <div className="border border-gray-200 rounded-lg max-h-[400px] overflow-y-auto">
-                {filteredInventory.map(item => {
-                  const isSelected = selectedItems.some(s => s.item.id === item.id);
-                  const isActive = selectedItemId === item.id;
-                  const tempQuantity = itemQuantities[item.id!] || 1;
-                  return (
-                    <div 
-                      key={item.id}
-                      className={`p-3 border-b border-gray-100 last:border-0 transition-colors cursor-pointer
-                        ${isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}
-                      `}
-                      onClick={() => handleItemClick(item)}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-700">{item.category_name}</span>
-                            {isSelected && (
-                              <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">已选择</span>
-                            )}
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                    <input 
+                      type="text"
+                      placeholder="快速搜索"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="border border-gray-200 rounded-lg max-h-[400px] overflow-y-auto">
+                    {filteredInventory.map(item => {
+                      const isSelected = selectedItems.some(s => s.item.id === item.id);
+                      const isActive = selectedItemId === item.id;
+                      const tempQuantity = itemQuantities[item.id!] || 1;
+                      return (
+                        <div 
+                          key={item.id}
+                          className={`p-3 border-b border-gray-100 last:border-0 transition-colors cursor-pointer
+                            ${isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : isActive ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}
+                          `}
+                          onClick={() => handleItemClick(item)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-slate-700">{item.category_name}</span>
+                                {isSelected && (
+                                  <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">已选择</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {Object.values(item.specs).join(' ')}
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-600 ml-2">库存: {item.quantity}</span>
                           </div>
-                          <div className="text-xs text-slate-500 mt-1">
-                            {Object.values(item.specs).join(' ')}
-                          </div>
+                          {isActive && !isSelected && (
+                            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200" onClick={e => e.stopPropagation()}>
+                              <label className="text-xs text-slate-600 whitespace-nowrap">入库数量:</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={tempQuantity}
+                                onChange={e => handleItemQuantityChange(item.id!, Number(e.target.value))}
+                                className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                placeholder="数量"
+                                autoFocus
+                              />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddItem(item);
+                                }}
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors"
+                              >
+                                添加
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <span className="text-xs font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-600 ml-2">库存: {item.quantity}</span>
-                      </div>
-                      {isActive && !isSelected && (
-                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200" onClick={e => e.stopPropagation()}>
-                          <label className="text-xs text-slate-600 whitespace-nowrap">入库数量:</label>
-                          <input
-                            type="number"
-                            min="1"
-                            value={tempQuantity}
-                            onChange={e => handleItemQuantityChange(item.id!, Number(e.target.value))}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                            placeholder="数量"
-                            autoFocus
-                          />
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddItem(item);
-                            }}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors"
-                          >
-                            添加
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {filteredInventory.length === 0 && <div className="p-4 text-center text-gray-400 text-sm">无可用库存</div>}
-              </div>
-            </div>
-              ) : (
+                      );
+                    })}
+                    {filteredInventory.length === 0 && <div className="p-4 text-center text-gray-400 text-sm">无可用库存</div>}
+                  </div>
+                </div>
+              ) : mode === 'category' ? (
                 /* 按品类添加模式 */
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">选择品类并填写属性</label>
@@ -671,6 +757,52 @@ const InboundEntryView: React.FC = () => {
                     </div>
                   )}
                 </div>
+              ) : (
+                /* 通过表格导入模式 */
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">导入 Excel 文件</label>
+                  <div className="bg-white p-6 rounded-lg border-2 border-dashed border-gray-300 text-center">
+                    <div className="relative inline-block mb-4">
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={handleImportExcel}
+                        className="hidden"
+                        id="inbound-import-file"
+                      />
+                      <label
+                        htmlFor="inbound-import-file"
+                        className="flex flex-col items-center gap-3 px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors"
+                      >
+                        <Upload size={32} />
+                        <span className="font-medium">选择 Excel 文件</span>
+                        <span className="text-xs opacity-90">支持 .xlsx 和 .xls 格式</span>
+                      </label>
+                    </div>
+                    <button
+                      onClick={generateInboundTemplate}
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium mx-auto"
+                    >
+                      <Download size={16} />
+                      下载导入模板
+                    </button>
+                    <div className="mt-4 space-y-2">
+                      <p className="text-xs text-gray-500">
+                        请先下载模板，按照格式填写后上传
+                      </p>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-left">
+                        <p className="text-xs font-medium text-blue-900 mb-1">💡 提示：</p>
+                        <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                          <li>模板默认包含 4 个属性列（属性1名称/值 到 属性4名称/值）</li>
+                          <li>如果物品属性少于 4 个，可以直接留空多余的列，<strong>无需删除</strong></li>
+                          <li>如果物品属性超过 4 个，可以自行添加"属性5名称"、"属性5值"等列</li>
+                          <li>属性列必须成对出现（属性X名称 后必须紧跟 属性X值）</li>
+                          <li>属性名称和属性值列必须相邻，不能有其他列插入</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -680,7 +812,7 @@ const InboundEntryView: React.FC = () => {
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-bold text-slate-800">
-                    已选择物品 ({mode === 'inventory' ? selectedItems.length : categoryBasedItems.length})
+                    已选择物品 ({mode === 'inventory' ? selectedItems.length : mode === 'category' ? categoryBasedItems.length : categoryBasedItems.length})
                   </h4>
                   {(mode === 'inventory' ? selectedItems.length : categoryBasedItems.length) > 0 && (
                     <button
@@ -777,6 +909,12 @@ const InboundEntryView: React.FC = () => {
                 )}
               </div>
 
+              {mode === 'import' && categoryBasedItems.length === 0 && (
+                <div className="text-sm text-slate-500 text-center py-8">
+                  请上传 Excel 文件导入数据
+                </div>
+              )}
+
               <button
                 onClick={() => {
                   const totalItems = mode === 'inventory' ? selectedItems.length : categoryBasedItems.length;
@@ -785,7 +923,7 @@ const InboundEntryView: React.FC = () => {
                       show: true,
                       type: 'warning',
                       title: '未选择物品',
-                      message: '请至少选择一个物品进行入库'
+                      message: mode === 'import' ? '请先上传 Excel 文件导入数据' : '请至少选择一个物品进行入库'
                     });
                     return;
                   }
@@ -1522,6 +1660,7 @@ const InventoryEditView: React.FC = () => {
 
 const CategoryPanel: React.FC = () => {
   const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
+  const [mode, setMode] = useState<'add' | 'import'>('add'); // 两种模式：添加品类 / 导入品类
   const [categories, setCategories] = useState<Category[]>([]);
   const [isEditing, setIsEditing] = useState<number | null>(null);
   const [name, setName] = useState('');
@@ -1691,6 +1830,79 @@ const CategoryPanel: React.FC = () => {
     setAttributes(newAttrs.length ? newAttrs : [{ name: '', options: [] }]);
   };
 
+  const handleImportCategoryExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      const importedRows = await parseCategoryExcel(file);
+      
+      // MFA 验证
+      const mfaVerified = await requireMFA('category_create');
+      if (!mfaVerified) {
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+
+      for (const row of importedRows) {
+        try {
+          // 检查品类是否已存在
+          const existing = categories.find(c => c.name === row.name);
+          if (existing) {
+            errors.push(`品类 "${row.name}" 已存在，跳过`);
+            errorCount++;
+            continue;
+          }
+
+          await categoriesApi.create({
+            name: row.name,
+            attributes: row.attributes
+          });
+          successCount++;
+        } catch (error: any) {
+          errors.push(`品类 "${row.name}" 创建失败: ${error.response?.data?.detail || error.message}`);
+          errorCount++;
+        }
+      }
+
+      // 刷新品类列表
+      const data = await categoriesApi.getAll();
+      setCategories(data);
+
+      if (errorCount === 0) {
+        setDialog({
+          show: true,
+          type: 'success',
+          title: '导入成功',
+          message: `成功导入 ${successCount} 个品类`
+        });
+      } else {
+        setDialog({
+          show: true,
+          type: 'warning',
+          title: '导入完成',
+          message: `成功导入 ${successCount} 个品类，${errorCount} 个失败`,
+          details: errors.join('\n')
+        });
+      }
+    } catch (error: any) {
+      setDialog({
+        show: true,
+        type: 'error',
+        title: '导入失败',
+        message: error.message || 'Excel 文件解析失败，请检查文件格式'
+      });
+    } finally {
+      setLoading(false);
+      // 清空文件输入
+      e.target.value = '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1700,7 +1912,39 @@ const CategoryPanel: React.FC = () => {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="space-y-6">
+      {/* 模式切换 */}
+      <div className="bg-white p-1 rounded-lg border border-gray-200 shadow-sm flex">
+        <button
+          onClick={() => {
+            setMode('add');
+            resetForm();
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            mode === 'add'
+              ? 'bg-blue-50 text-blue-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Plus size={16} />
+          添加品类
+        </button>
+        <button
+          onClick={() => {
+            setMode('import');
+            resetForm();
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all ${
+            mode === 'import'
+              ? 'bg-blue-50 text-blue-700 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Upload size={16} />
+          导入品类
+        </button>
+      </div>
+
       {/* Info Dialog */}
       <Dialog
         type={dialog.type}
@@ -1761,13 +2005,15 @@ const CategoryPanel: React.FC = () => {
         </div>
       )}
 
-      <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit sticky top-6">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          {isEditing ? <Edit2 size={18} /> : <Plus size={18} />}
-          {isEditing ? '编辑品类' : '新增品类'}
-        </h3>
-        
-        <div className="space-y-4">
+      {mode === 'add' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit sticky top-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            {isEditing ? <Edit2 size={18} /> : <Plus size={18} />}
+            {isEditing ? '编辑品类' : '新增品类'}
+          </h3>
+          
+          <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">品类名称</label>
             <input 
@@ -1890,13 +2136,80 @@ const CategoryPanel: React.FC = () => {
           </div>
         ))}
 
-        {categories.length === 0 && (
-          <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
-            <Settings size={48} className="mx-auto mb-3 opacity-20" />
-            <p>暂无品类数据，请在左侧添加。</p>
+          {categories.length === 0 && (
+            <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
+              <Settings size={48} className="mx-auto mb-3 opacity-20" />
+              <p>暂无品类数据，请在左侧添加。</p>
+            </div>
+          )}
+        </div>
+        </div>
+      ) : (
+        /* 导入品类模式 */
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+          <div className="max-w-2xl mx-auto">
+            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+              <Upload size={20} />
+              导入品类
+            </h3>
+            
+            <div className="space-y-6">
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <Download className="text-blue-600" size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-blue-900 mb-2">使用说明</h4>
+                    <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside mb-3">
+                      <li>点击下方"下载模板"按钮下载 Excel 模板</li>
+                      <li>按照模板格式填写品类信息</li>
+                      <li>上传填写好的 Excel 文件完成导入</li>
+                    </ol>
+                    <div className="bg-white border border-blue-300 rounded p-2 mt-3">
+                      <p className="text-xs font-medium text-blue-900 mb-1">💡 提示：</p>
+                      <ul className="text-xs text-blue-700 space-y-0.5 list-disc list-inside">
+                        <li>模板默认包含 3 个属性列（属性名称1/选项1 到 属性名称3/选项3）</li>
+                        <li>如果品类属性少于 3 个，可以直接留空多余的列，<strong>无需删除</strong></li>
+                        <li>如果品类属性超过 3 个，可以自行添加"属性名称4"、"属性选项4"等列</li>
+                        <li>属性列必须成对出现（属性名称X 后必须紧跟 属性选项X）</li>
+                        <li>属性名称和属性选项列必须相邻，不能有其他列插入</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg border-2 border-dashed border-gray-300 text-center">
+                <div className="relative inline-block mb-4">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleImportCategoryExcel}
+                    className="hidden"
+                    id="category-import-file"
+                  />
+                  <label
+                    htmlFor="category-import-file"
+                    className="flex flex-col items-center gap-3 px-8 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors"
+                  >
+                    <Upload size={40} />
+                    <span className="font-medium text-lg">选择 Excel 文件</span>
+                    <span className="text-sm opacity-90">支持 .xlsx 和 .xls 格式</span>
+                  </label>
+                </div>
+                <button
+                  onClick={generateCategoryTemplate}
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm font-medium mx-auto"
+                >
+                  <Download size={18} />
+                  下载导入模板
+                </button>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
