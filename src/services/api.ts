@@ -16,6 +16,69 @@ const api = axios.create({
   },
 });
 
+// 请求拦截器：为写操作自动添加操作 token
+api.interceptors.request.use(
+  (config) => {
+    // 只对写操作（POST, PUT, DELETE, PATCH）添加操作 token
+    if (config.method && ['post', 'put', 'delete', 'patch'].includes(config.method.toLowerCase())) {
+      const operationToken = getOperationToken();
+      if (operationToken) {
+        config.headers.Authorization = `Bearer ${operationToken}`;
+      }
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// 响应拦截器：处理 401 错误（操作 token 过期）
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && error.response?.data?.detail?.includes('操作')) {
+      // 操作 token 过期或无效，清除本地存储的 token
+      clearOperationToken();
+    }
+    return Promise.reject(error);
+  }
+);
+
+// 操作 token 管理函数
+const OPERATION_TOKEN_KEY = 'operation_token';
+const OPERATION_TOKEN_EXPIRES_KEY = 'operation_token_expires';
+
+export const getOperationToken = (): string | null => {
+  const token = localStorage.getItem(OPERATION_TOKEN_KEY);
+  const expiresStr = localStorage.getItem(OPERATION_TOKEN_EXPIRES_KEY);
+  
+  if (!token || !expiresStr) {
+    return null;
+  }
+  
+  // 检查 token 是否过期
+  const expires = parseInt(expiresStr, 10);
+  if (Date.now() > expires) {
+    clearOperationToken();
+    return null;
+  }
+  
+  return token;
+};
+
+export const setOperationToken = (token: string, expiresIn: number): void => {
+  localStorage.setItem(OPERATION_TOKEN_KEY, token);
+  // 提前 30 秒过期，避免边界情况
+  const expires = Date.now() + (expiresIn - 30) * 1000;
+  localStorage.setItem(OPERATION_TOKEN_EXPIRES_KEY, expires.toString());
+};
+
+export const clearOperationToken = (): void => {
+  localStorage.removeItem(OPERATION_TOKEN_KEY);
+  localStorage.removeItem(OPERATION_TOKEN_EXPIRES_KEY);
+};
+
 // Categories API
 export const categoriesApi = {
   getAll: async (): Promise<Category[]> => {
@@ -187,6 +250,8 @@ export interface MFAVerifyRequest {
 
 export interface MFAVerifyResponse {
   verified: boolean;
+  operation_token?: string;  // 操作 token，用于后续 API 调用
+  expires_in?: number;  // token 有效期（秒）
 }
 
 export interface LoginRequest {
@@ -243,7 +308,12 @@ export const mfaApi = {
     const response = await api.post('/api/mfa/mfa/verify', {
       totp_code: totpCode
     });
-    return response.data;
+    const data = response.data;
+    // 如果验证成功且有操作 token，保存到本地存储
+    if (data.verified && data.operation_token && data.expires_in) {
+      setOperationToken(data.operation_token, data.expires_in);
+    }
+    return data;
   },
   
   login: async (password: string): Promise<LoginResponse> => {

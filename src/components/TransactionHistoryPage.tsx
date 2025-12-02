@@ -534,16 +534,17 @@ export const TransactionHistoryPage: React.FC = () => {
                     items = parsed.items;
                     totalQuantity = parsed.total_quantity || t.quantity;
                   } else if (parsed.type && parsed.type.startsWith('MULTI_ITEM_REVERT_')) {
-                    // 撤销记录格式：使用原始数据来显示
+                    // 撤销记录格式：使用原始数据来显示，但数量要反转
                     isReverted = true;
                     // 优先使用 original_items（原始数据），如果没有则使用 items（撤销操作数据）
                     if (parsed.original_items && Array.isArray(parsed.original_items)) {
                       items = parsed.original_items;
-                      // 使用原始数量
-                      totalQuantity = parsed.original_quantity !== undefined ? parsed.original_quantity : t.quantity;
+                      // 撤销后：使用 t.quantity（后端已经更新为反向数量）
+                      totalQuantity = t.quantity;
                     } else if (Array.isArray(parsed.items)) {
                       items = parsed.items;
-                      totalQuantity = parsed.total_quantity_diff !== undefined ? parsed.total_quantity_diff : (parsed.total_quantity || t.quantity);
+                      // 撤销后：使用 t.quantity（后端已经更新为反向数量）
+                      totalQuantity = t.quantity;
                     } else {
                       throw new Error('Invalid revert format');
                     }
@@ -552,10 +553,12 @@ export const TransactionHistoryPage: React.FC = () => {
                     isReverted = true;
                     if (parsed.original_items && Array.isArray(parsed.original_items)) {
                       items = parsed.original_items;
-                      totalQuantity = parsed.original_quantity !== undefined ? parsed.original_quantity : t.quantity;
+                      // 撤销后：使用 t.quantity（后端已经更新为反向数量）
+                      totalQuantity = t.quantity;
                     } else if (Array.isArray(parsed.items)) {
                       items = parsed.items;
-                      totalQuantity = parsed.total_quantity_diff !== undefined ? parsed.total_quantity_diff : (parsed.total_quantity || t.quantity);
+                      // 撤销后：使用 t.quantity（后端已经更新为反向数量）
+                      totalQuantity = t.quantity;
                     } else {
                       throw new Error('Invalid revert format');
                     }
@@ -603,6 +606,7 @@ export const TransactionHistoryPage: React.FC = () => {
                   typeBadge = <span className={`px-2 py-0.5 rounded text-xs font-bold ${isReverted ? 'bg-gray-100 text-gray-700' : 'bg-green-100 text-green-700'}`}>
                     {revertPrefix}入库
                   </span>;
+                  // 入库：正常显示正数，撤销后显示负数（反转）
                   qtyDisplay = <span className={isReverted ? "text-gray-600 font-bold" : "text-green-600 font-bold"}>
                     {totalQuantity > 0 ? '+' : ''}{totalQuantity}
                   </span>;
@@ -610,13 +614,15 @@ export const TransactionHistoryPage: React.FC = () => {
                   typeBadge = <span className={`px-2 py-0.5 rounded text-xs font-bold ${isReverted ? 'bg-gray-100 text-gray-700' : 'bg-red-100 text-red-700'}`}>
                     {revertPrefix}出库
                   </span>;
+                  // 出库：正常显示负数，撤销后显示正数（反转）
                   qtyDisplay = <span className={isReverted ? "text-gray-600 font-bold" : "text-red-600 font-bold"}>
-                    {totalQuantity < 0 ? '' : '-'}{Math.abs(totalQuantity)}
+                    {totalQuantity < 0 ? totalQuantity : '-' + Math.abs(totalQuantity)}
                   </span>;
                 } else if (t.type === 'ADJUST') {
                   typeBadge = <span className={`px-2 py-0.5 rounded text-xs font-bold ${isReverted ? 'bg-gray-100 text-gray-700' : 'bg-yellow-100 text-yellow-700'}`}>
                     {revertPrefix}调整
                   </span>;
+                  // 调整：撤销后数量反转（正变负，负变正）
                   qtyDisplay = <span className={isReverted ? "text-gray-600 font-bold" : (totalQuantity > 0 ? "text-green-600 font-bold" : "text-red-600 font-bold")}>
                     {totalQuantity > 0 ? '+' : ''}{totalQuantity}
                   </span>;
@@ -624,13 +630,15 @@ export const TransactionHistoryPage: React.FC = () => {
                   typeBadge = <span className={`px-2 py-0.5 rounded text-xs font-bold ${isReverted ? 'bg-gray-100 text-gray-700' : 'bg-orange-100 text-orange-700'}`}>
                     {revertPrefix}调拨出
                   </span>;
+                  // 调拨出：正常显示负数，撤销后显示正数（反转）
                   qtyDisplay = <span className={isReverted ? "text-gray-600 font-bold" : "text-red-600 font-bold"}>
-                    {totalQuantity < 0 ? '' : '-'}{Math.abs(totalQuantity)}
+                    {totalQuantity < 0 ? totalQuantity : '-' + Math.abs(totalQuantity)}
                   </span>; 
                 } else if (isTransferIn) {
                   typeBadge = <span className={`px-2 py-0.5 rounded text-xs font-bold ${isReverted ? 'bg-gray-100 text-gray-700' : 'bg-blue-100 text-blue-700'}`}>
                     {revertPrefix}调拨入
                   </span>;
+                  // 调拨入：正常显示正数，撤销后显示负数（反转）
                   qtyDisplay = <span className={isReverted ? "text-gray-600 font-bold" : "text-green-600 font-bold"}>
                     {totalQuantity > 0 ? '+' : ''}{totalQuantity}
                   </span>;
@@ -651,12 +659,17 @@ export const TransactionHistoryPage: React.FC = () => {
                           // 对于普通记录，根据类型和quantity_diff/quantity来确定显示值
                           let itemQty: number;
                           if (isReverted) {
-                            // 撤销记录：直接使用quantity_diff（已经包含正确的符号）
-                            itemQty = item.quantity_diff !== undefined ? item.quantity_diff : (item.quantity || 0);
+                            // 撤销记录：数量要反转（正变负，负变正）
+                            // 使用原始数据中的quantity_diff或quantity，然后反转
+                            const originalQty = item.quantity_diff !== undefined ? item.quantity_diff : (item.quantity || 0);
+                            itemQty = -originalQty; // 反转符号
                           } else {
                             // 普通记录：根据类型处理
                             itemQty = item.quantity_diff !== undefined ? item.quantity_diff : (item.quantity || 0);
-                            if (t.type === 'TRANSFER' && isTransferOut) {
+                            if (t.type === 'OUT') {
+                              // 出库时，确保数量为负数
+                              itemQty = itemQty < 0 ? itemQty : -Math.abs(itemQty);
+                            } else if (t.type === 'TRANSFER' && isTransferOut) {
                               // 调拨出时，确保数量为负数
                               itemQty = itemQty < 0 ? itemQty : -Math.abs(itemQty);
                             } else if (t.type === 'TRANSFER' && isTransferIn) {
