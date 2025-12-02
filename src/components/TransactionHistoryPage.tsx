@@ -682,7 +682,20 @@ export const TransactionHistoryPage: React.FC = () => {
                                   {t.type === 'ADJUST' ? '变动' : '数量'}: <span className={`font-bold ${
                                     isReverted 
                                       ? 'text-gray-500' 
-                                      : (itemQty > 0 ? 'text-green-600' : itemQty < 0 ? 'text-red-600' : 'text-slate-600')
+                                      : (() => {
+                                          // 根据交易类型判断颜色
+                                          if (t.type === 'OUT' || isTransferOut) {
+                                            // 出库和调拨出：红色（负数）
+                                            return 'text-red-600';
+                                          } else if (t.type === 'IN' || isTransferIn) {
+                                            // 入库和调拨入：绿色（正数）
+                                            return 'text-green-600';
+                                          } else if (t.type === 'ADJUST') {
+                                            // 调整：根据数量正负判断
+                                            return itemQty > 0 ? 'text-green-600' : itemQty < 0 ? 'text-red-600' : 'text-slate-600';
+                                          }
+                                          return 'text-slate-600';
+                                        })()
                                   }`}>
                                     {itemQty > 0 ? '+' : ''}{itemQty}
                                   </span>
