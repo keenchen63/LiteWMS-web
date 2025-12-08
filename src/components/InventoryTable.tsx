@@ -88,7 +88,6 @@ export const InventoryTable: React.FC = () => {
         if (keywords.length > 0) {
           const categoryName = item.category_name.toLowerCase();
           const specString = Object.values(item.specs).join(' ').toLowerCase();
-          const allText = `${categoryName} ${specString}`;
           
           // 所有关键词都必须匹配（AND 逻辑）
           const allKeywordsMatch = keywords.every(keyword => 
