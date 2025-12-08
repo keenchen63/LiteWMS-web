@@ -82,13 +82,22 @@ export const InventoryTable: React.FC = () => {
 
     // 1. Filter
     let data = inventory.filter(item => {
-      // 搜索框筛选（品类名称或规格值）
+      // 搜索框筛选（支持多个关键词，同时搜索品类名称和规格值）
       if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const specString = Object.values(item.specs).join(' ');
-        const matchesSearch = item.category_name.toLowerCase().includes(q) || specString.toLowerCase().includes(q);
-        if (!matchesSearch) {
-          return false;
+        const keywords = searchQuery.toLowerCase().trim().split(/\s+/).filter(k => k.length > 0);
+        if (keywords.length > 0) {
+          const categoryName = item.category_name.toLowerCase();
+          const specString = Object.values(item.specs).join(' ').toLowerCase();
+          const allText = `${categoryName} ${specString}`;
+          
+          // 所有关键词都必须匹配（AND 逻辑）
+          const allKeywordsMatch = keywords.every(keyword => 
+            categoryName.includes(keyword) || specString.includes(keyword)
+          );
+          
+          if (!allKeywordsMatch) {
+            return false;
+          }
         }
       }
 

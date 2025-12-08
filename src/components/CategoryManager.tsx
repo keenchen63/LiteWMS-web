@@ -160,9 +160,19 @@ const InboundEntryView: React.FC = () => {
   }, [activeWarehouseId]);
 
   const filteredInventory = inventory.filter(item => {
-    const q = searchQuery.toLowerCase();
-    const specString = Object.values(item.specs).join(' ');
-    return item.category_name.toLowerCase().includes(q) || specString.toLowerCase().includes(q);
+    if (!searchQuery.trim()) return true;
+    
+    const keywords = searchQuery.toLowerCase().trim().split(/\s+/).filter(k => k.length > 0);
+    if (keywords.length === 0) return true;
+    
+    const categoryName = item.category_name.toLowerCase();
+    const specString = Object.values(item.specs).join(' ').toLowerCase();
+    
+    // 所有关键词都必须匹配（AND 逻辑）
+    // 每个关键词可以在品类名或任何属性值中匹配
+    return keywords.every(keyword => 
+      categoryName.includes(keyword) || specString.includes(keyword)
+    );
   });
 
   const handleItemQuantityChange = (itemId: number, value: string) => {

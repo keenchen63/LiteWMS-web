@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { mfaApi } from '../services/api';
+import { mfaApi, getOperationToken } from '../services/api';
 
 export const useMFA = () => {
   const [showMFADialog, setShowMFADialog] = useState(false);
@@ -21,22 +21,45 @@ export const useMFA = () => {
         return true;
       }
       
+      // 全局开关已开启，需要操作 token（API 保护）
+      // 检查是否有有效的操作 token
+      const existingToken = getOperationToken();
+      
+      if (existingToken) {
+        // 已有有效的操作 token
+        // 如果指定了操作类型，检查细粒度配置
+        if (operationType && status.mfa_settings) {
+          const operationEnabled = status.mfa_settings[operationType as keyof typeof status.mfa_settings];
+          if (operationEnabled === false) {
+            // 该操作类型的 MFA 已禁用（细粒度开关关闭），且已有 token，直接允许
+            console.log(`[MFA] Operation ${operationType} MFA is disabled, but valid token exists, allowing operation`);
+            return true;
+          }
+        }
+        // 细粒度开关开启或未指定操作类型，但已有 token，允许操作
+        console.log('[MFA] Valid operation token found, allowing operation');
+        return true;
+      }
+      
+      // 没有有效的操作 token，需要获取
       // 如果指定了操作类型，检查细粒度配置
       if (operationType && status.mfa_settings) {
         const operationEnabled = status.mfa_settings[operationType as keyof typeof status.mfa_settings];
         if (operationEnabled === false) {
-          // 该操作类型的 MFA 已禁用
-          console.log(`[MFA] Operation ${operationType} MFA is disabled, allowing operation`);
-          return true;
+          // 该操作类型的 MFA 已禁用（细粒度开关关闭）
+          // 但仍然需要操作 token（API 保护），所以需要验证
+          // 但可以给用户一个提示，说明这是为了 API 保护
+          console.log(`[MFA] Operation ${operationType} MFA is disabled, but need token for API protection`);
+        } else {
+          // 该操作类型的 MFA 已启用，需要验证
+          console.log(`[MFA] Operation ${operationType} requires MFA verification`);
         }
-        // 该操作类型的 MFA 已启用，需要验证
-        console.log(`[MFA] Operation ${operationType} requires MFA verification`);
       } else {
         // 没有指定操作类型或没有细粒度配置，使用全局开关
         console.log('[MFA] MFA is set up, requiring verification');
       }
       
-      // MFA is set up, require verification
+      // 需要验证以获取操作 token
       return new Promise((resolve) => {
         setShowMFADialog(true);
         setMfaResolve(() => resolve);

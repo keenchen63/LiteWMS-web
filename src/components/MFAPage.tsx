@@ -752,13 +752,22 @@ export const MFAPage: React.FC = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <Power size={18} className="text-blue-600" />
-                      <span className="font-medium text-slate-900">MFA 验证</span>
+                      <span className="font-medium text-slate-900">MFA 验证（全局开关）</span>
                     </div>
-                    <p className="text-sm text-slate-600">
-                      {mfaEnabled ? 'MFA 验证已启用，操作时需要输入验证码' : 'MFA 验证已禁用，操作时不需要验证码'}
+                    <p className="text-sm text-slate-600 mb-2">
+                      {mfaEnabled ? 'MFA 验证已启用，所有写操作都需要操作 token（API 保护）' : 'MFA 验证已禁用，所有操作都不需要验证'}
                     </p>
+                    <div className="text-xs text-slate-500 bg-white/50 p-2 rounded border border-slate-200">
+                      <p className="font-medium mb-1">💡 说明：</p>
+                      <ul className="list-disc list-inside space-y-1 text-slate-600">
+                        <li>开启后，所有写操作（创建、更新、删除）都需要操作 token</li>
+                        <li>操作 token 通过 MFA 验证获得，有效期 5 分钟</li>
+                        <li>细粒度开关只控制是否显示验证对话框，不影响 API 保护</li>
+                        <li>如果细粒度开关关闭但已有有效 token，不会再次要求验证</li>
+                      </ul>
+                    </div>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
+                  <label className="relative inline-flex items-center cursor-pointer ml-4">
                     <input
                       type="checkbox"
                       checked={mfaEnabled}
@@ -781,11 +790,22 @@ export const MFAPage: React.FC = () => {
                 <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h3 className="text-md font-semibold text-slate-900 mb-3 flex items-center gap-2">
                     <Settings size={18} className="text-blue-600" />
-                    细粒度控制
+                    细粒度控制（用户体验设置）
                   </h3>
-                  <p className="text-xs text-slate-600 mb-4">
-                    为不同操作单独设置是否需要 MFA 验证
-                  </p>
+                  <div className="text-xs text-slate-600 mb-4 space-y-2">
+                    <p>
+                      为不同操作单独设置是否需要显示 MFA 验证对话框
+                    </p>
+                    <div className="bg-white/70 p-2 rounded border border-blue-200">
+                      <p className="font-medium mb-1">📌 重要提示：</p>
+                      <ul className="list-disc list-inside space-y-1 text-slate-600">
+                        <li>细粒度开关只控制<strong>是否显示验证对话框</strong>，不影响 API 保护</li>
+                        <li>如果开关<strong>关闭</strong>但已有有效 token，不会显示验证对话框</li>
+                        <li>如果开关<strong>关闭</strong>但没有 token，仍需要验证（因为 API 需要 token）</li>
+                        <li>如果开关<strong>开启</strong>，总是显示验证对话框</li>
+                      </ul>
+                    </div>
+                  </div>
                   
                   <div className="space-y-4">
                     {/* 库存操作组 */}
