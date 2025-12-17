@@ -92,7 +92,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </nav>
 
             <div className="p-4 text-xs text-slate-500 text-center">
-                Keen 2025
+                © 2025 Keen
             </div>
         </div>
       </aside>
