@@ -3,6 +3,8 @@ import { itemsApi, transactionsApi } from '../services/api';
 import { Search, ShoppingCart, User, Calendar, X, FileText, Building2 } from 'lucide-react';
 import { useWarehouse } from '../contexts/WarehouseContext';
 import { Dialog, DialogType } from './Dialog';
+import { MFADialog } from './MFADialog';
+import { useMFA } from '../hooks/useMFA';
 import type { InventoryItemWithCategory } from '../types';
 
 export const OutboundPage: React.FC = () => {
@@ -34,6 +36,7 @@ interface SelectedOutboundItem {
 
 const OutboundForm: React.FC = () => {
   const { activeWarehouseId, activeWarehouseName } = useWarehouse();
+  const { requireMFA, showMFADialog, handleMFAVerify, handleMFACancel } = useMFA();
   const [step, setStep] = useState<1|2>(1);
   const [selectedItems, setSelectedItems] = useState<SelectedOutboundItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -209,6 +212,12 @@ const OutboundForm: React.FC = () => {
   const handleWarehouseConfirm = async () => {
     setWarehouseConfirmDialog(false);
 
+    // MFA 验证
+    const mfaVerified = await requireMFA('outbound');
+    if (!mfaVerified) {
+      return; // 用户取消了 MFA 验证
+    }
+
     // 验证库存是否充足
     const insufficientItems = selectedItems.filter(selected => selected.quantity > selected.item.quantity);
     if (insufficientItems.length > 0) {
@@ -341,6 +350,15 @@ const OutboundForm: React.FC = () => {
         onCancel={() => setWarehouseConfirmDialog(false)}
         confirmText="确认无误"
         cancelText="取消"
+      />
+
+      {/* MFA Dialog */}
+      <MFADialog
+        show={showMFADialog}
+        onVerify={handleMFAVerify}
+        onCancel={handleMFACancel}
+        title="MFA 验证"
+        message="请输入您的验证码以完成出库操作"
       />
 
       {step === 1 ? (
